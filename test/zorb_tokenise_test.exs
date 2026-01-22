@@ -4,10 +4,39 @@ defmodule Zorb.InterpreterTest.Tokenise do
 
   test "tokenise opcode" do
     header = <<
-      3, 0, 0, 0, 0, 0, 1, 0,
-      0x03, 0x00, 0, 0, 0, 0, 0, 0, # 0x08: Dictionary = 0x0300
-      0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      # 0x08: Dictionary = 0x0300
+      0x03,
+      0x00,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
     >>
 
     # Dictionary at 0x0300
@@ -31,20 +60,22 @@ defmodule Zorb.InterpreterTest.Tokenise do
     # 0xFB (VAR 251), types 00 00 01 11 (large, large, small, omitted) -> 0x07
     code = <<0xFB, 0x07, 0x04, 0x00, 0x05, 0x00, 0x00>>
 
-    inst = OrbWasmtime.Instance.run(Interpreter, [
-      {:zio, :print_char, fn _ -> 0 end}
-    ])
+    inst =
+      OrbWasmtime.Instance.run(Interpreter, [
+        {:zio, :print_char, fn _ -> 0 end}
+      ])
+
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
     OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
     OrbWasmtime.Instance.write_memory(inst, 0x0300, :binary.bin_to_list(dict))
     OrbWasmtime.Instance.write_memory(inst, 0x0400, :binary.bin_to_list(text_buf))
     OrbWasmtime.Instance.write_memory(inst, 0x0500, :binary.bin_to_list(parse_buf))
-    
+
     OrbWasmtime.Instance.call(inst, :init, 0x8000)
     OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
-    
+
     OrbWasmtime.Instance.call(inst, :step)
-    
+
     # Check parse buffer
     # Byte 1 should be 1
     assert OrbWasmtime.Instance.read_memory(inst, 0x0501, 1) == <<1>>
