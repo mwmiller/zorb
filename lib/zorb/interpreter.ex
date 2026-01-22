@@ -38,6 +38,8 @@ end
 defmodule Zorb.Interpreter.ZIO do
   use Orb.Import, name: :zio
   defw(print_char(char: Orb.I32))
+  # 1=Stack Overflow, 2=Static Memory Write, 3=Illegal Instruction
+  defw(halt(reason: Orb.I32))
 end
 
 defmodule Zorb.Interpreter do
@@ -49,9 +51,10 @@ defmodule Zorb.Interpreter do
   defp header_dictionary_base, do: 0x08
   defp header_object_table_base, do: 0x0A
   defp header_globals_base, do: 0x0C
+  defp header_static_memory_base, do: 0x0E
   defp header_abbreviations_base, do: 0x18
 
-  # Prime number of pages
+  # Prime number of pages: 832KB
   Memory.pages(13)
 
   global do
@@ -60,7 +63,10 @@ defmodule Zorb.Interpreter do
     @sp 0
     @fp 0
     @stack_base 0
+    # 1024 words = 2KB stack
+    @stack_max 1024
     @globals_base 0
+    @static_memory_base 0
     @dictionary_base 0
     @object_table_base 0
     @object_table_start 0
@@ -86,6 +92,7 @@ defmodule Zorb.Interpreter do
     @globals_base = read_word(header_globals_base())
     @dictionary_base = read_word(header_dictionary_base())
     @object_table_base = read_word(header_object_table_base())
+    @static_memory_base = read_word(header_static_memory_base())
     @abbreviations_base = read_word(header_abbreviations_base())
     @stack_base = stack_offset
     @sp = 0
@@ -110,7 +117,6 @@ defmodule Zorb.Interpreter do
       @object_table_start = @object_table_base + 126
     end
 
-    # V8 uses shift 3, but we mainly support V3-5 for now
     if @version === 8, do: @packed_address_shift = 3
 
     push_stack(0)
@@ -120,13 +126,33 @@ defmodule Zorb.Interpreter do
     @fp = 0
   end
 
+  # Recommendation #5: Optimized static loading via host memory.copy
+  defw load_story(story_ptr: T.Address, len: I32), i: I32 do
+    i = 0
+
+    loop CopyLoop do
+      if I32.lt_u(i, len) do
+        Memory.store!(I32.U8, i, Memory.load!(I32.U8, story_ptr + i))
+        i = i + 1
+        CopyLoop.continue()
+      end
+    end
+  end
+
   defw unpack_address(address: T.PackedAddress), T.Address do
     I32.shl(address, @packed_address_shift)
   end
 
+  # Recommendation #4: Protected Memory Access
   defw write_word(address: T.Address, value: I32) do
+    if I32.ge_u(address, @static_memory_base), do: return(Zorb.Interpreter.ZIO.halt(2))
     Memory.store!(I32.U8, address, I32.shr_u(value, 8))
     Memory.store!(I32.U8, address + 1, I32.band(value, 0xFF))
+  end
+
+  defw write_byte(address: T.Address, value: I32) do
+    if I32.ge_u(address, @static_memory_base), do: return(Zorb.Interpreter.ZIO.halt(2))
+    Memory.store!(I32.U8, address, I32.band(value, 0xFF))
   end
 
   defw read_variable(var: T.Variable), I32 do
@@ -149,7 +175,9 @@ defmodule Zorb.Interpreter do
     write_word(@globals_base + I32.shl(var - 16, 1), value)
   end
 
+  # Recommendation #4: Stack Guards
   defw push_stack(value: I32) do
+    if I32.ge_u(@sp, @stack_max), do: return(Zorb.Interpreter.ZIO.halt(1))
     write_stack(@sp, value)
     @sp = @sp + 1
   end
@@ -341,13 +369,7 @@ defmodule Zorb.Interpreter do
     if opcode === 4 do
       addr = get_object_address(op1)
       byte = read_byte(addr + I32.shr_u(op2, 3))
-
-      Memory.store!(
-        I32.U8,
-        addr + I32.shr_u(op2, 3),
-        I32.or(byte, I32.shl(1, 7 - I32.band(op2, 7)))
-      )
-
+      write_byte(addr + I32.shr_u(op2, 3), I32.or(byte, I32.shl(1, 7 - I32.band(op2, 7))))
       return()
     end
 
@@ -355,8 +377,7 @@ defmodule Zorb.Interpreter do
       addr = get_object_address(op1)
       byte = read_byte(addr + I32.shr_u(op2, 3))
 
-      Memory.store!(
-        I32.U8,
+      write_byte(
         addr + I32.shr_u(op2, 3),
         I32.band(byte, I32.xor(I32.shl(1, 7 - I32.band(op2, 7)), 0xFF))
       )
@@ -511,10 +532,13 @@ defmodule Zorb.Interpreter do
 
         if next === object do
           set_object_sibling(curr, get_object_sibling(object))
+          # break
+          curr = 0
         else
           curr = next
-          FindPrev.continue(if: curr !== 0)
         end
+
+        FindPrev.continue(if: curr !== 0)
       end
     end
 
@@ -524,17 +548,17 @@ defmodule Zorb.Interpreter do
 
   defw set_object_parent(object: T.Object, val: T.Object), addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: Memory.store!(I32.U8, addr + 4, val), else: write_word(addr + 6, val)
+    if @version <= 3, do: write_byte(addr + 4, val), else: write_word(addr + 6, val)
   end
 
   defw set_object_sibling(object: T.Object, val: T.Object), addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: Memory.store!(I32.U8, addr + 5, val), else: write_word(addr + 8, val)
+    if @version <= 3, do: write_byte(addr + 5, val), else: write_word(addr + 8, val)
   end
 
   defw set_object_child(object: T.Object, val: T.Object), addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: Memory.store!(I32.U8, addr + 6, val), else: write_word(addr + 10, val)
+    if @version <= 3, do: write_byte(addr + 6, val), else: write_word(addr + 10, val)
   end
 
   defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32),
@@ -547,14 +571,14 @@ defmodule Zorb.Interpreter do
     end
 
     if opcode === 0x01, do: return(write_word(op1 + I32.shl(op2, 1), op3))
-    if opcode === 0x02, do: return(Memory.store!(I32.U8, op1 + op2, op3))
+    if opcode === 0x02, do: return(write_byte(op1 + op2, op3))
 
     if opcode === 0x03 do
       addr = get_prop_address(op1, op2)
 
       if addr !== 0 do
         if I32.shr_u(read_byte(addr - 1), 5) === 0,
-          do: Memory.store!(I32.U8, addr, op3),
+          do: write_byte(addr, op3),
           else: write_word(addr, op3)
       end
 
@@ -562,7 +586,7 @@ defmodule Zorb.Interpreter do
     end
 
     if opcode === 0x04 do
-      Memory.store!(I32.U8, op1 + if(@version <= 4, do: I32.const(1), else: I32.const(2)), 0)
+      write_byte(op1 + if(@version <= 4, do: I32.const(1), else: I32.const(2)), 0)
       if op2 !== 0, do: do_tokenise(op1, op2, 0)
       return()
     end
@@ -822,7 +846,7 @@ defmodule Zorb.Interpreter do
       end
     end
 
-    Memory.store!(I32.U8, parse_buf + 1, token_count)
+    write_byte(parse_buf + 1, token_count)
   end
 
   defw execute_var8(

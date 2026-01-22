@@ -3,6 +3,8 @@ defmodule Zorb.InterpreterTest.Tokenise do
   alias Zorb.Interpreter
 
   test "tokenise opcode" do
+    # Header: version 3
+    # 0x0E: Static memory base = 0x0800 (so everything below is writable)
     header = <<
       3,
       0,
@@ -15,6 +17,38 @@ defmodule Zorb.InterpreterTest.Tokenise do
       # 0x08: Dictionary = 0x0300
       0x03,
       0x00,
+      0,
+      0,
+      0,
+      0,
+      0x08,
+      0x00,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0,
       0,
@@ -39,33 +73,49 @@ defmodule Zorb.InterpreterTest.Tokenise do
       0
     >>
 
-    # Dictionary at 0x0300
-    # 0 separators, 4 byte entry length (minimum for V3), 1 entry
-    # Entry "abc" -> zchars 6, 7, 8, padding 5, 5, 5
-    # word 1: 00110 00111 01000 -> 0x18E8
-    # word 2: 00101 00101 00101 (padding) -> 0x14A5 | 0x8000 -> 0x94A5
-    dict = <<0, 4, 0, 1, 0x18, 0xE8, 0x94, 0xA5>>
+    # Opcode: tokenise (2OP 0x1B)
+    # text_buf: 0x0400, parse_buf: 0x0500, dict_addr: 0x0300
+    # Actually VAR 0x1B is 0xFB
+    # Operands: [0x0400, 0x0500, 0x0300]
+    code = <<
+      0xFB,
+      0x03,
+      0x04,
+      0x00,
+      0x05,
+      0x00,
+      0x03,
+      0x00,
+      0x00
+    >>
 
-    # Text buffer at 0x0400 (V1-4 standard format)
-    # Byte 0: max length
-    # Byte 1 onwards: characters typed, followed by 0.
-    text_buf = <<10>> <> "abc" <> <<0>>
+    dict = <<
+      1,
+      ?,,
+      6,
+      0,
+      1,
+      # "cat" in Z-chars: c=8, a=6, t=25 => 00100 00110 11001 => 0x2199
+      0x21,
+      0x99,
+      0x00,
+      0x00,
+      0x00,
+      0x00
+    >>
 
-    # Parse buffer at 0x0500
-    # Byte 0: max entries, Byte 1: actual entries
-    # Each entry is 4 bytes: dict_addr (2), word_len (1), word_start (1)
-    parse_buf = <<4, 0>> <> :binary.copy(<<0>>, 16)
-
-    # Code at 0x0100: tokenise 0x0400 0x0500 0
-    # 0xFB (VAR 251), types 00 00 01 11 (large, large, small, omitted) -> 0x07
-    code = <<0xFB, 0x07, 0x04, 0x00, 0x05, 0x00, 0x00>>
+    text_buf = <<10, "cat", 0>>
+    parse_buf = <<4, 0, 0, 0, 0, 0>>
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
+    # Load header
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    # Load code at PC 0x0100
     OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
     OrbWasmtime.Instance.write_memory(inst, 0x0300, :binary.bin_to_list(dict))
     OrbWasmtime.Instance.write_memory(inst, 0x0400, :binary.bin_to_list(text_buf))

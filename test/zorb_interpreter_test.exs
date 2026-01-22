@@ -23,8 +23,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # Opcode: 20 (add) is 0x14
@@ -40,7 +40,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     # Load header
@@ -81,8 +82,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # je 5, 5, branch if true, offset 4
@@ -91,7 +92,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -122,8 +124,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # jz 0, branch if true, offset 2
@@ -134,7 +136,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -165,8 +168,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # je L01, 5, branch if false, offset 3
@@ -175,7 +178,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -209,8 +213,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # jz 0, branch if true, offset -2 (long branch)
@@ -219,7 +223,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -250,8 +255,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # Main code at 0x0100: call routine at 0x0200, store in G16
@@ -268,7 +273,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -307,8 +313,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # VAR 5: print_char. opcode 5. types_byte: 01 (Small) 11 11 11 -> 0x7F
@@ -321,9 +327,10 @@ defmodule Zorb.InterpreterTest do
       OrbWasmtime.Instance.run(Interpreter, [
         {:zio, :print_char,
          fn char ->
-           send(parent, {:print, char})
+           send(parent, {:print_char, char})
            0
-         end}
+         end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -333,7 +340,7 @@ defmodule Zorb.InterpreterTest do
 
     OrbWasmtime.Instance.call(inst, :step)
 
-    assert_receive {:print, 65}
+    assert_receive {:print_char, 65}
   end
 
   test "print (z-string) instruction" do
@@ -352,8 +359,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # 0OP 2: print. opcode 2.
@@ -370,9 +377,10 @@ defmodule Zorb.InterpreterTest do
       OrbWasmtime.Instance.run(Interpreter, [
         {:zio, :print_char,
          fn char ->
-           send(parent, {:print, char})
+           send(parent, {:print_char, char})
            0
-         end}
+         end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -383,11 +391,11 @@ defmodule Zorb.InterpreterTest do
     OrbWasmtime.Instance.call(inst, :step)
 
     # 'a'
-    assert_receive {:print, 97}
+    assert_receive {:print_char, 97}
     # 'b'
-    assert_receive {:print, 98}
+    assert_receive {:print_char, 98}
     # 'c'
-    assert_receive {:print, 99}
+    assert_receive {:print_char, 99}
   end
 
   test "object table navigation" do
@@ -408,8 +416,8 @@ defmodule Zorb.InterpreterTest do
       0x00,
       2,
       0,
-      0,
-      0
+      0x08,
+      0x00
     >>
 
     # Object Table at 0x0200:
@@ -430,7 +438,8 @@ defmodule Zorb.InterpreterTest do
 
     inst =
       OrbWasmtime.Instance.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end}
+        {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -469,8 +478,8 @@ defmodule Zorb.InterpreterTest do
       0,
       2,
       0,
-      0,
-      0,
+      0x08,
+      0x00,
       0,
       0,
       0,
@@ -506,9 +515,10 @@ defmodule Zorb.InterpreterTest do
       OrbWasmtime.Instance.run(Interpreter, [
         {:zio, :print_char,
          fn char ->
-           send(parent, {:print, char})
+           send(parent, {:print_char, char})
            0
-         end}
+         end},
+        {:zio, :halt, fn _ -> 0 end}
       ])
 
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -521,12 +531,12 @@ defmodule Zorb.InterpreterTest do
     OrbWasmtime.Instance.call(inst, :step)
 
     # 'a'
-    assert_receive {:print, 97}
+    assert_receive {:print_char, 97}
     # 'b'
-    assert_receive {:print, 98}
+    assert_receive {:print_char, 98}
     # 'c'
-    assert_receive {:print, 99}
+    assert_receive {:print_char, 99}
     # 'z'
-    assert_receive {:print, 122}
+    assert_receive {:print_char, 122}
   end
 end
