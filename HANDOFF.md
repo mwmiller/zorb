@@ -5,20 +5,19 @@ Zorb is a high-performance, idiomatic WebAssembly Z-machine interpreter built us
 ## Current State
 
 - **Architecture**: Uses a prime number of memory pages (13) and semantic custom WASM types (`T.Address`, `T.Object`, etc.).
-- **Performance**: Version-specific offsets and packed address shifts are cached in global variables during initialization. Dictionary lookups use an efficient binary search.
-- **Opcode Support**:
-    - Core arithmetic, logic, and branching.
-    - Full object tree management (`insert_obj`, `remove_obj`, property access).
-    - Routine calls (V3 and V4+) and stack management.
-    - Z-string decoding with support for abbreviations.
-    - Dictionary tokenization (`tokenise`).
+- **Robustness**: Implemented write-guards for static memory, stack overflow checks, and a `zio.halt` fatal error interface.
+- **Performance**: Version-specific offsets and packed address shifts are cached in global variables during initialization. Dictionary lookups use an efficient binary search. Fast `load_story` bulk copy implemented.
 
 ## Recent Accomplishments
 
+- **Robustness Layer**: Added safeguards to prevent illegal memory writes and stack overflows.
 - **Performance Refactoring**: Cached object table start, entry sizes, and parent/sibling/child offsets in globals to minimize runtime branching.
 - **Binary Search**: Replaced linear dictionary lookup with binary search, significantly improving `tokenise` performance.
-- **Orb Stability**: Standardized the use of `I32.const()` in complex blocks and ensured explicit `return()` paths to avoid WASM translation errors.
-- **Idiomatic Code**: Eliminated Elixir-level `if` expressions in favor of pattern matching and guards, adhering to project style guidelines.
+
+## Known Issues
+
+- **Test Regressions**: The introduction of memory guards caused regressions in `test/zorb_tokenise_test.exs` and `test/zorb_movement_test.exs`. While headers were updated to allow writes, some address calculations in assertions need further refinement.
+- **zio.halt Interface**: All tests now include a mock for `halt` that returns `0`.
 
 ## Next Steps
 

@@ -4,7 +4,15 @@
 Zorb is a WebAssembly Z-machine interpreter built using Elixir and the Orb DSL.
 
 ### Implemented Features
-- **Core Architecture**: Stack management (FP/SP), Global variables, Memory paging (512KB).
+- **Core Architecture**: Stack management (FP/SP), Global variables, Memory paging (13 pages, 832KB).
+- **Robustness**: 
+  - **Memory Protection**: Write-guards for static memory area (code/dictionary).
+  - **Stack Protection**: Bounds-checking on `@sp` to prevent overflows.
+  - **Halt Interface**: `zio.halt` host import for signaling fatal errors.
+- **Performance**:
+  - **Global Caching**: Version-specific offsets and packed shifts cached in globals.
+  - **Binary Search**: $O(\log N)$ dictionary lookup.
+  - **Bulk Loading**: Fast `load_story` utility for initializing memory.
 - **Instruction Decoding**: 2OP, 1OP, 0OP, and VAR (including 8-operand V4+ calls).
 - **Routine Management**: Standard Z-machine calling convention with local variables and return value storage.
 - **Z-Strings**: 
