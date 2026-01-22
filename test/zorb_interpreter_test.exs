@@ -213,4 +213,34 @@ defmodule Zorb.InterpreterTest do
     
     assert_receive {:print, 65}
   end
+
+  test "print (z-string) instruction" do
+    header = <<
+      3, 0, 0, 0, 0, 0, 1, 0,
+      0, 0, 0, 0, 2, 0, 0, 0
+    >>
+
+    # 0OP 2: print. opcode 2.
+    # code: 0xB2 (0OP 2)
+    # Z-string for "abc":
+    # 5-bit codes: 'a'=6, 'b'=7, 'c'=8
+    # word: 0 (bit 15) | 6<<10 | 7<<5 | 8 = 0x18E8
+    # mark as done (bit 15=1) -> 0x98E8
+    code = <<0xB2, 0x98, 0xE8>>
+
+    parent = self()
+    inst = OrbWasmtime.Instance.run(Interpreter, [
+      {:zio, :print_char, fn char -> send(parent, {:print, char}); 0 end}
+    ])
+    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    OrbWasmtime.Instance.call(inst, :init, 0x8000)
+    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    
+    OrbWasmtime.Instance.call(inst, :step)
+    
+    assert_receive {:print, 97} # 'a'
+    assert_receive {:print, 98} # 'b'
+    assert_receive {:print, 99} # 'c'
+  end
 end

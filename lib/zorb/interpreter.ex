@@ -14,7 +14,15 @@ defmodule Zorb.Interpreter do
     @fp 0
     @stack_base 0
     @globals_base 0
+    @alphabet_shift 0 # 0=A0, 1=A1, 2=A2
   end
+
+  # Alphabet tables (V3+)
+  # A0: a-z
+  # A1: A-Z
+  # A2: \n, ^, 0-9, ., ,, !, ?, _, #, ', ", /, \, -, :, (,)
+  # These are usually standard but can be overridden in later versions.
+  # For now we'll hardcode the standard ASCII equivalents.
 
   defmodule ZIO do
     use Orb.Import, name: :zio
@@ -193,9 +201,64 @@ defmodule Zorb.Interpreter do
     if opcode === 15, do: return(fetch_result_and_store(I32.xor(op1, 0xFFFF)))
   end
 
+  defw print_zstring(), word: I32, done: I32, z1: I32, z2: I32, z3: I32 do
+    @alphabet_shift = 0
+    loop DecodeLoop do
+      word = fetch_word()
+      done = I32.band(word, 0x8000)
+      z1 = I32.band(I32.shr_u(word, 10), 0x1F)
+      z2 = I32.band(I32.shr_u(word, 5), 0x1F)
+      z3 = I32.band(word, 0x1F)
+      
+      decode_zchar(z1)
+      decode_zchar(z2)
+      decode_zchar(z3)
+      
+      DecodeLoop.continue(if: done === 0)
+    end
+  end
+
+  defw decode_zchar(zchar: I32), shift: I32 do
+    if zchar === 0 do # Space
+      ZIO.print_char(32)
+      @alphabet_shift = 0
+      return()
+    end
+    
+    if zchar === 4 do # Shift to A1
+      @alphabet_shift = 1
+      return()
+    end
+    if zchar === 5 do # Shift to A2
+      @alphabet_shift = 2
+      return()
+    end
+    
+    # Simple mapping for A0 (a-z)
+    if @alphabet_shift === 0 do
+      ZIO.print_char(zchar + 91) # 6 -> 97 ('a')
+      @alphabet_shift = 0
+      return()
+    end
+    
+    # Simple mapping for A1 (A-Z)
+    if @alphabet_shift === 1 do
+      ZIO.print_char(zchar + 59) # 6 -> 65 ('A')
+      @alphabet_shift = 0
+      return()
+    end
+    
+    # A2 handling... (omitted for brevity, just reset for now)
+    @alphabet_shift = 0
+  end
+
   defw execute_0op(opcode: I32) do
     if opcode === 0, do: return(do_return(1))
     if opcode === 1, do: return(do_return(0))
+    if opcode === 2 do # print
+      print_zstring()
+      return()
+    end
     if opcode === 8, do: return(do_return(pop_stack()))
   end
 
