@@ -167,6 +167,38 @@ defmodule Zorb.Interpreter do
     read_word(addr + 10)
   end
 
+  defw get_prop_table_address(object: I32), I32, addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: return(read_word(addr + 7))
+    read_word(addr + 12)
+  end
+
+  defw get_prop_address(object: I32, property: I32), I32, addr: I32, byte: I32, size: I32, prop_num: I32 do
+    addr = get_prop_table_address(object)
+    # Skip short name
+    addr = addr + I32.shl(read_byte(addr), 1) + 1
+    
+    loop PropLoop do
+      byte = read_byte(addr)
+      if byte === 0, do: return(0)
+      
+      if @version <= 3 do
+        # V3: size in bits 7-5, prop_num in 4-0
+        prop_num = I32.band(byte, 0x1F)
+        size = I32.shr_u(byte, 5) + 1
+        if prop_num === property, do: return(addr + 1)
+        addr = addr + size + 1
+      else
+        # V4+ property encoding is more complex...
+        # For now, let's just support V3 style or basic navigation
+        return(0)
+      end
+      
+      PropLoop.continue(if: prop_num > property)
+    end
+    0
+  end
+
   defw step(), byte: I32, op1: I32, op2: I32, op3: I32, op4: I32, type1: I32, type2: I32, type3: I32, type4: I32, opcode: I32, types_byte: I32 do
     byte = fetch_byte()
     
@@ -200,12 +232,29 @@ defmodule Zorb.Interpreter do
     execute_var(opcode, fetch_operand(type1), fetch_operand(type2), fetch_operand(type3), fetch_operand(type4))
   end
 
-  defw execute_2op(opcode: I32, op1: I32, op2: I32) do
+  defw execute_2op(opcode: I32, op1: I32, op2: I32), addr: I32 do
     if opcode === 1, do: return(fetch_branch(op1 === op2))
     if opcode === 2, do: return(fetch_branch(I32.lt_s(op1, op2)))
     if opcode === 3, do: return(fetch_branch(I32.gt_s(op1, op2)))
     if opcode === 8, do: return(fetch_result_and_store(I32.or(op1, op2)))
     if opcode === 9, do: return(fetch_result_and_store(I32.band(op1, op2)))
+    if opcode === 14 do # get_prop
+      addr = get_prop_address(op1, op2)
+      if addr === 0 do
+        # Return default from defaults table (at @object_table_base)
+        fetch_result_and_store(read_word(@object_table_base + I32.shl(op2 - 1, 1)))
+      else
+        # V3 property can be 1 or 2 bytes
+        # Byte at (addr-1) has size in bits 7-5. 
+        # But for simplicity, we'll assume word if it's 2 bytes.
+        if I32.shr_u(read_byte(addr - 1), 5) === 0 do
+          fetch_result_and_store(read_byte(addr))
+        else
+          fetch_result_and_store(read_word(addr))
+        end
+      end
+      return()
+    end
     if opcode === 15, do: return(fetch_result_and_store(read_word(op1 + I32.shl(op2, 1))))
     if opcode === 16, do: return(fetch_result_and_store(read_byte(op1 + op2)))
     if opcode === 20, do: return(fetch_result_and_store(op1 + op2))
@@ -298,14 +347,30 @@ defmodule Zorb.Interpreter do
     if opcode === 8, do: return(do_return(pop_stack()))
   end
 
-  defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32) do
+  defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32), addr: I32 do
     if opcode === 0 do
       if op1 === 0, do: return(fetch_result_and_store(0))
       return(do_call(unpack_address(op1), fetch_byte()))
     end
     if opcode === 1, do: return(write_word(op1 + I32.shl(op2, 1), op3))
     if opcode === 2, do: return(Memory.store!(I32.U8, op1 + op2, op3))
+    if opcode === 3 do # put_prop
+      addr = get_prop_address(op1, op2)
+      if addr !== 0 do
+        if I32.shr_u(read_byte(addr - 1), 5) === 0 do
+          Memory.store!(I32.U8, addr, op3)
+        else
+          write_word(addr, op3)
+        end
+      end
+      return()
+    end
     if opcode === 5, do: return(Zorb.Interpreter.ZIO.print_char(op1))
+    if opcode === 7 do # random
+      # For now, let's assume a host function or just return 1
+      fetch_result_and_store(1)
+      return()
+    end
   end
 
   defw do_call(address: I32, result_var: I32), locals_count: I32, i: I32, old_fp: I32 do
