@@ -22,7 +22,6 @@ defmodule Zorb.InterpreterTest do
     inst = OrbWasmtime.Instance.run(Interpreter, [
       {:zio, :print_char, fn _ -> 0 end}
     ])
-    IO.inspect(OrbWasmtime.Instance.exports(inst), label: "EXPORTS")
     
     # Load header
     OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -282,5 +281,47 @@ defmodule Zorb.InterpreterTest do
     assert OrbWasmtime.Instance.call(inst, :read_variable, 16) == 2
     # 0x0100 + 2 (instr) + 1 (res var) + 1 (branch) + 4 - 2 = 0x0106
     assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0106
+  end
+
+  @tag :abbrev
+  test "z-string abbreviation" do
+    header = <<
+      3, 0, 0, 0, 0, 0, 1, 0,
+      0, 0, 0, 0, 2, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0,
+      0x03, 0x00, 0, 0 # 0x18: Abbreviations = 0x0300
+    >>
+
+    # Abbreviations Table at 0x0300:
+    # 96 entries, each 1 word (packed address).
+    # Entry 0: packed 0x0100 -> 0x0200
+    abbrev_table = <<0x01, 0x00>> <> :binary.copy(<<0>>, 190)
+
+    # String at 0x0200: "abc"
+    abbrev_string = <<0x98, 0xE8>>
+
+    # Main code at 0x0100: print abbrev 0
+    # 0x01 (Abbrev set 1) 0x00 (Entry 0) -> bits 00001 00000 -> 0x0400
+    # Next char 'z' (31) -> 0x041F
+    # code: 0xB2 (print) 0x84, 0x1F (bit 15=1)
+    code = <<0xB2, 0x84, 0x1F>>
+
+    parent = self()
+    inst = OrbWasmtime.Instance.run(Interpreter, [
+      {:zio, :print_char, fn char -> send(parent, {:print, char}); 0 end}
+    ])
+    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    OrbWasmtime.Instance.write_memory(inst, 0x0200, :binary.bin_to_list(abbrev_string))
+    OrbWasmtime.Instance.write_memory(inst, 0x0300, :binary.bin_to_list(abbrev_table))
+    OrbWasmtime.Instance.call(inst, :init, 0x8000)
+    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    
+    OrbWasmtime.Instance.call(inst, :step)
+    
+    assert_receive {:print, 97} # 'a'
+    assert_receive {:print, 98} # 'b'
+    assert_receive {:print, 99} # 'c'
+    assert_receive {:print, 122} # 'z'
   end
 end

@@ -10,6 +10,7 @@ defmodule Zorb.Interpreter do
   defp header_initial_pc, do: 0x06
   defp header_globals_base, do: 0x0C
   defp header_object_table_base, do: 0x0A
+  defp header_abbreviations_base, do: 0x18
 
   Memory.pages(8) # 512KB
 
@@ -21,7 +22,10 @@ defmodule Zorb.Interpreter do
     @stack_base 0
     @globals_base 0
     @object_table_base 0
+    @abbreviations_base 0
     @alphabet_shift 0 # 0=A0, 1=A1, 2=A2
+    @abbrev_mode 0    # 0=none, 1=A1, 2=A2, 3=A3
+    @recursion_depth 0
   end
 
   Orb.Import.register(Zorb.Interpreter.ZIO)
@@ -31,9 +35,11 @@ defmodule Zorb.Interpreter do
     @pc = read_word(header_initial_pc())
     @globals_base = read_word(header_globals_base())
     @object_table_base = read_word(header_object_table_base())
+    @abbreviations_base = read_word(header_abbreviations_base())
     @stack_base = stack_offset
     @sp = 0
     @fp = 0
+    @recursion_depth = 0
     push_stack(0)
     push_stack(0)
     push_stack(0xFF)
@@ -42,12 +48,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw unpack_address(address: I32), I32 do
-    if @version <= 3 do
-      return(I32.shl(address, 1))
-    end
-    if @version <= 5 do
-      return(I32.shl(address, 2))
-    end
+    if @version <= 3, do: return(I32.shl(address, 1))
+    if @version <= 5, do: return(I32.shl(address, 2))
     I32.shl(address, 3)
   end
 
@@ -57,12 +59,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw read_variable(var: I32), I32 do
-    if var === 0 do
-      return(pop_stack())
-    end
-    if var < 16 do
-      return(read_stack(@fp + 4 + (var - 1)))
-    end
+    if var === 0, do: return(pop_stack())
+    if var < 16, do: return(read_stack(@fp + 4 + (var - 1)))
     read_word(@globals_base + I32.shl(var - 16, 1))
   end
 
@@ -136,9 +134,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_address(object: I32), I32 do
-    if @version <= 3 do
-      return(@object_table_base + 62 + (object - 1) * 9)
-    end
+    if @version <= 3, do: return(@object_table_base + 62 + (object - 1) * 9)
     @object_table_base + 126 + (object - 1) * 14
   end
 
@@ -169,11 +165,9 @@ defmodule Zorb.Interpreter do
   defw get_prop_address(object: I32, property: I32), I32, addr: I32, byte: I32, size: I32, prop_num: I32 do
     addr = get_prop_table_address(object)
     addr = addr + I32.shl(read_byte(addr), 1) + 1
-    
     loop PropLoop do
       byte = read_byte(addr)
       if byte === 0, do: return(0)
-      
       if @version <= 3 do
         prop_num = I32.band(byte, 0x1F)
         size = I32.shr_u(byte, 5) + 1
@@ -182,7 +176,6 @@ defmodule Zorb.Interpreter do
       else
         return(0)
       end
-      
       PropLoop.continue(if: prop_num > property)
     end
     0
@@ -190,29 +183,20 @@ defmodule Zorb.Interpreter do
 
   defw step(), byte: I32, types_byte: I32 do
     byte = fetch_byte()
-    
-    if byte < 0x80 do # 2OP
+    if byte < 0x80 do
       execute_2op(I32.band(byte, 0x1F), fetch_operand(if I32.band(byte, 0x40) > 0, result: I32, do: type_var(), else: type_small()), fetch_operand(if I32.band(byte, 0x20) > 0, result: I32, do: type_var(), else: type_small()))
       return()
     end
-
-    if byte < 0xB0 do # 1OP
+    if byte < 0xB0 do
       execute_1op(I32.band(byte, 0x0F), fetch_operand(I32.band(I32.shr_u(byte, 4), 0x03)))
       return()
     end
-
-    if byte < 0xC0 do # 0OP
+    if byte < 0xC0 do
       execute_0op(I32.band(byte, 0x0F))
       return()
     end
-
     types_byte = fetch_byte()
-    execute_var(I32.band(byte, 0x1F), 
-      fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)),
-      fetch_operand(I32.band(I32.shr_u(types_byte, 4), 0x03)),
-      fetch_operand(I32.band(I32.shr_u(types_byte, 2), 0x03)),
-      fetch_operand(I32.band(types_byte, 0x03))
-    )
+    execute_var(I32.band(byte, 0x1F), fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)), fetch_operand(I32.band(I32.shr_u(types_byte, 4), 0x03)), fetch_operand(I32.band(I32.shr_u(types_byte, 2), 0x03)), fetch_operand(I32.band(types_byte, 0x03)))
   end
 
   defw execute_2op(opcode: I32, op1: I32, op2: I32), addr: I32, byte: I32, prop_num: I32, size: I32 do
@@ -237,24 +221,21 @@ defmodule Zorb.Interpreter do
       fetch_branch(I32.band(byte, I32.shl(1, 7 - I32.band(op2, 7))) !== 0)
       return()
     end
+    if opcode === 7, do: return(fetch_result_and_store(I32.band(op1, op2)))
     if opcode === 8, do: return(fetch_result_and_store(I32.or(op1, op2)))
-    if opcode === 9, do: return(fetch_result_and_store(I32.band(op1, op2)))
-    if opcode === 14 do
+    if opcode === 13, do: return(write_variable(op1, op2))
+    if opcode === 15, do: return(fetch_result_and_store(read_word(op1 + I32.shl(op2, 1))))
+    if opcode === 16, do: return(fetch_result_and_store(read_byte(op1 + op2)))
+    if opcode === 17 do
       addr = get_prop_address(op1, op2)
       if addr === 0 do
         fetch_result_and_store(read_word(@object_table_base + I32.shl(op2 - 1, 1)))
       else
-        if I32.shr_u(read_byte(addr - 1), 5) === 0 do
-          fetch_result_and_store(read_byte(addr))
-        else
-          fetch_result_and_store(read_word(addr))
-        end
+        if I32.shr_u(read_byte(addr - 1), 5) === 0, do: fetch_result_and_store(read_byte(addr)), else: fetch_result_and_store(read_word(addr))
       end
       return()
     end
-    if opcode === 15, do: return(fetch_result_and_store(read_word(op1 + I32.shl(op2, 1))))
-    if opcode === 16, do: return(fetch_result_and_store(read_byte(op1 + op2)))
-    if opcode === 17 do
+    if opcode === 19 do
       addr = get_prop_table_address(op1)
       addr = addr + I32.shl(read_byte(addr), 1) + 1
       if op2 === 0 do
@@ -305,50 +286,13 @@ defmodule Zorb.Interpreter do
     end
     if opcode === 5, do: return(write_variable(op1, read_variable(op1) + 1))
     if opcode === 6, do: return(write_variable(op1, read_variable(op1) - 1))
+    if opcode === 11, do: return(do_return(op1))
+    if opcode === 12 do
+      @pc = @pc + op1 - 2
+      return()
+    end
+    if opcode === 14, do: return(fetch_result_and_store(read_variable(op1)))
     if opcode === 15, do: return(fetch_result_and_store(I32.xor(op1, 0xFFFF)))
-  end
-
-  defw print_zstring(), word: I32, done: I32, z1: I32, z2: I32, z3: I32 do
-    @alphabet_shift = 0
-    loop DecodeLoop do
-      word = fetch_word()
-      done = I32.band(word, 0x8000)
-      z1 = I32.band(I32.shr_u(word, 10), 0x1F)
-      z2 = I32.band(I32.shr_u(word, 5), 0x1F)
-      z3 = I32.band(word, 0x1F)
-      decode_zchar(z1)
-      decode_zchar(z2)
-      decode_zchar(z3)
-      DecodeLoop.continue(if: done === 0)
-    end
-  end
-
-  defw decode_zchar(zchar: I32) do
-    if zchar === 0 do
-      Zorb.Interpreter.ZIO.print_char(32)
-      @alphabet_shift = 0
-      return()
-    end
-    if zchar === 4 do
-      @alphabet_shift = 1
-      return()
-    end
-    if zchar === 5 do
-      @alphabet_shift = 2
-      return()
-    end
-    
-    if @alphabet_shift === 0 do
-      Zorb.Interpreter.ZIO.print_char(zchar + 91)
-      @alphabet_shift = 0
-      return()
-    end
-    if @alphabet_shift === 1 do
-      Zorb.Interpreter.ZIO.print_char(zchar + 59)
-      @alphabet_shift = 0
-      return()
-    end
-    @alphabet_shift = 0
   end
 
   defw execute_0op(opcode: I32) do
@@ -360,11 +304,8 @@ defmodule Zorb.Interpreter do
 
   defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32), addr: I32 do
     if opcode === 0 do
-      if op1 === 0 do
-        fetch_result_and_store(0)
-      else
-        do_call(unpack_address(op1), fetch_byte())
-      end
+      if op1 === 0, do: return(fetch_result_and_store(0))
+      do_call(unpack_address(op1), fetch_byte())
       return()
     end
     if opcode === 1, do: return(write_word(op1 + I32.shl(op2, 1), op3))
@@ -372,16 +313,70 @@ defmodule Zorb.Interpreter do
     if opcode === 3 do
       addr = get_prop_address(op1, op2)
       if addr !== 0 do
-        if I32.shr_u(read_byte(addr - 1), 5) === 0 do
-          Memory.store!(I32.U8, addr, op3)
-        else
-          write_word(addr, op3)
-        end
+        if I32.shr_u(read_byte(addr - 1), 5) === 0, do: Memory.store!(I32.U8, addr, op3), else: write_word(addr, op3)
       end
       return()
     end
     if opcode === 5, do: return(Zorb.Interpreter.ZIO.print_char(op1))
     if opcode === 7, do: return(fetch_result_and_store(1))
+  end
+
+  defw print_zstring(), word: I32, done: I32, z1: I32, z2: I32, z3: I32, saved_shift: I32 do
+    @recursion_depth = @recursion_depth + 1
+    if @recursion_depth > 2, do: return()
+    saved_shift = @alphabet_shift
+    @alphabet_shift = 0
+    @abbrev_mode = 0
+    loop DecodeLoop do
+      word = fetch_word()
+      done = I32.band(word, 0x8000)
+      z1 = I32.band(I32.shr_u(word, 10), 0x1F)
+      z2 = I32.band(I32.shr_u(word, 5), 0x1F)
+      z3 = I32.band(word, 0x1F)
+      decode_zchar(z1)
+      decode_zchar(z2)
+      decode_zchar(z3)
+      DecodeLoop.continue(if: done === 0)
+    end
+    @alphabet_shift = saved_shift
+    @recursion_depth = @recursion_depth - 1
+  end
+
+  defw decode_zchar(zchar: I32), old_pc: I32, abbrev_addr: I32 do
+    if @abbrev_mode > 0 do
+      abbrev_addr = read_word(@abbreviations_base + I32.shl(I32.shl(@abbrev_mode - 1, 5) + zchar, 1))
+      abbrev_addr = unpack_address(abbrev_addr)
+      old_pc = @pc
+      @pc = abbrev_addr
+      @abbrev_mode = 0
+      print_zstring()
+      @pc = old_pc
+      return()
+    end
+    if zchar >= 1 do
+      if zchar <= 3 do
+        @abbrev_mode = zchar
+        return()
+      end
+    end
+    if zchar === 0 do
+      Zorb.Interpreter.ZIO.print_char(32)
+      @alphabet_shift = 0
+      return()
+    end
+    if zchar === 4, do: return(@alphabet_shift = 1)
+    if zchar === 5, do: return(@alphabet_shift = 2)
+    if @alphabet_shift === 0 do
+      Zorb.Interpreter.ZIO.print_char(zchar + 91)
+      return()
+    end
+    if @alphabet_shift === 1 do
+      Zorb.Interpreter.ZIO.print_char(zchar + 59)
+      @alphabet_shift = 0
+      return()
+    end
+    if zchar === 6, do: Zorb.Interpreter.ZIO.print_char(10), else: Zorb.Interpreter.ZIO.print_char(63)
+    @alphabet_shift = 0
   end
 
   defw do_call(address: I32, result_var: I32), locals_count: I32, i: I32, old_fp: I32 do
