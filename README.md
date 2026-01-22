@@ -1,6 +1,9 @@
 # Zorb
 
-**TODO: Add description**
+Zorb is a WebAssembly Z-machine interpreter implemented in Elixir using the Orb DSL. It aims to provide a fast, safe, and portable way to run Infocom-style interactive fiction in any WebAssembly environment.
+
+## Current Progress
+Most core V3 and V4 opcodes are implemented, including routine management, object table navigation/manipulation, and Z-string abbreviation expansion. See `AGENTS.md` for a detailed status.
 
 ## Installation
 

@@ -332,11 +332,12 @@ defmodule Zorb.Interpreter do
     if opcode === 3, do: return(fetch_result_and_store(get_object_parent(op1)))
     if opcode === 4 do
       if op1 === 0, do: return(fetch_result_and_store(0))
-      fetch_result_and_store(I32.shr_u(read_byte(op1 - 1), 5) + 1)
+      fetch_result_and_store(get_prop_len(op1))
       return()
     end
     if opcode === 5, do: return(write_variable(op1, read_variable(op1) + 1))
     if opcode === 6, do: return(write_variable(op1, read_variable(op1) - 1))
+    if opcode === 9, do: return(do_remove_obj(op1))
     if opcode === 11, do: return(do_return(op1))
     if opcode === 12 do
       @pc = @pc + op1 - 2
@@ -344,6 +345,92 @@ defmodule Zorb.Interpreter do
     end
     if opcode === 14, do: return(fetch_result_and_store(read_variable(op1)))
     if opcode === 15, do: return(fetch_result_and_store(I32.xor(op1, 0xFFFF)))
+  end
+
+  defw get_prop_len(data_addr: I32), I32, byte: I32 do
+    if data_addr === 0, do: return(0)
+    byte = read_byte(data_addr - 1)
+    if @version <= 3, do: return(I32.shr_u(byte, 5) + 1)
+    
+    if I32.band(byte, 0x80) > 0 do
+      byte = I32.band(byte, 0x3F)
+      if byte === 0, do: return(64), else: return(byte)
+    end
+    if I32.band(byte, 0x40) > 0, do: return(2), else: return(1)
+    I32.const(0)
+  end
+
+  defw do_remove_obj(object: I32), parent: I32, curr: I32, next: I32 do
+    parent = get_object_parent(object)
+    if parent === 0, do: return()
+    
+    curr = get_object_child(parent)
+    if curr === object do
+      set_object_child(parent, get_object_sibling(object))
+    else
+      loop FindPrev do
+        next = get_object_sibling(curr)
+        if next === object do
+          set_object_sibling(curr, get_object_sibling(object))
+        else
+          curr = next
+          FindPrev.continue(if: curr !== 0)
+        end
+      end
+    end
+    set_object_parent(object, 0)
+    set_object_sibling(object, 0)
+  end
+
+  defw set_object_parent(object: I32, val: I32), addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: Memory.store!(I32.U8, addr + 4, val), else: write_word(addr + 6, val)
+  end
+
+  defw set_object_sibling(object: I32, val: I32), addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: Memory.store!(I32.U8, addr + 5, val), else: write_word(addr + 8, val)
+  end
+
+  defw set_object_child(object: I32, val: I32), addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: Memory.store!(I32.U8, addr + 6, val), else: write_word(addr + 10, val)
+  end
+
+  defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32), addr: I32, old_child: I32 do
+    if opcode === 0x00 do
+      if op1 === 0, do: return(fetch_result_and_store(0))
+      do_call(unpack_address(op1), fetch_byte())
+      return()
+    end
+    if opcode === 0x01, do: return(write_word(op1 + I32.shl(op2, 1), op3))
+    if opcode === 0x02, do: return(Memory.store!(I32.U8, op1 + op2, op3))
+    if opcode === 0x03 do
+      addr = get_prop_address(op1, op2)
+      if addr !== 0 do
+        if I32.shr_u(read_byte(addr - 1), 5) === 0, do: Memory.store!(I32.U8, addr, op3), else: write_word(addr, op3)
+      end
+      return()
+    end
+    if opcode === 0x04 do
+      Memory.store!(I32.U8, op1 + (if @version <= 4, do: I32.const(1), else: I32.const(2)), 0)
+      if op2 !== 0, do: do_tokenise(op1, op2, 0)
+      return()
+    end
+    if opcode === 0x05, do: return(Zorb.Interpreter.ZIO.print_char(op1))
+    if opcode === 0x06 do # insert_obj
+      do_remove_obj(op1)
+      old_child = get_object_child(op2)
+      set_object_child(op2, op1)
+      set_object_sibling(op1, old_child)
+      set_object_parent(op1, op2)
+      return()
+    end
+    if opcode === 0x07, do: return(fetch_result_and_store(1))
+    if opcode === 0x08, do: return(push_stack(op1))
+    if opcode === 0x09, do: return(write_variable(op1, pop_stack()))
+    if opcode === 0x19, do: return(do_call(unpack_address(op1), 0xFF))
+    if opcode === 0x1B, do: return(do_tokenise(op1, op2, op3))
   end
 
   defw execute_0op(opcode: I32) do
@@ -428,37 +515,6 @@ defmodule Zorb.Interpreter do
     0
   end
 
-  defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32), addr: I32 do
-    if opcode === 0x00 do
-      if op1 === 0, do: return(fetch_result_and_store(0))
-      do_call(unpack_address(op1), fetch_byte())
-      return()
-    end
-    if opcode === 0x01, do: return(write_word(op1 + I32.shl(op2, 1), op3))
-    if opcode === 0x02, do: return(Memory.store!(I32.U8, op1 + op2, op3))
-    if opcode === 0x03 do
-      addr = get_prop_address(op1, op2)
-      if addr !== 0 do
-        if I32.shr_u(read_byte(addr - 1), 5) === 0, do: Memory.store!(I32.U8, addr, op3), else: write_word(addr, op3)
-      end
-      return()
-    end
-    if opcode === 0x04 do
-      # read text_buf parse_buf
-      # This usually waits for host input.
-      # For now, let's just assume empty input or mock it.
-      Memory.store!(I32.U8, op1 + (if @version <= 4, do: I32.const(1), else: I32.const(2)), 0) # characters Typed
-      if op2 !== 0, do: do_tokenise(op1, op2, 0)
-      return()
-    end
-    if opcode === 0x05, do: return(Zorb.Interpreter.ZIO.print_char(op1))
-    if opcode === 0x07, do: return(fetch_result_and_store(1))
-    if opcode === 0x08, do: return(push_stack(op1))
-    if opcode === 0x09, do: return(write_variable(op1, pop_stack()))
-    if opcode === 0x19, do: return(do_call(unpack_address(op1), 0xFF))
-    if opcode === 0x1B, do: return(do_tokenise(op1, op2, op3))
-  end
-
   defw is_separator(char: I32, dict_addr: I32), I32, num: I32, i: I32, result: I32 do
     if dict_addr === 0, do: dict_addr = @dictionary_base
     num = read_byte(dict_addr)
@@ -493,10 +549,9 @@ defmodule Zorb.Interpreter do
     token_count = 0
     encoded = 0x10000
     
-    # Determine text_len for V1-4 (scan for 0) or V5+ (read byte 1)
     if @version <= 4 do
       i = 0
-      text_len = read_byte(text_buf) # Actually max length, but we use it as a safety bound
+      text_len = read_byte(text_buf)
       loop ScanZero do
         if I32.lt_u(i, text_len) do
           if read_byte(text_start + i) !== 0 do
