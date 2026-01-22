@@ -1,0 +1,7 @@
+%{
+  "castore": {:hex, :castore, "1.0.17", "4f9770d2d45fbd91dcf6bd404cf64e7e58fed04fadda0923dc32acca0badffa2", [:mix], [], "hexpm", "12d24b9d80b910dd3953e165636d68f147a31db945d2dcb9365e441f8b5351e5"},
+  "orb": {:hex, :orb, "0.2.2", "7ec92f67a818ec98fdaad85ba7d48a2dc8bda77e09fbbed3f10d3e9e132b5bf1", [:mix], [], "hexpm", "f4870a351700eb5f88cba9b677a16b2adfe6c2e9c31f03cd85fa748f7c303389"},
+  "orb_wasmtime": {:hex, :orb_wasmtime, "0.1.17", "5c7df8f64569ddba0f80bd8b0c81db8930b8652c0ae0ae71205283550bcf8faf", [:mix], [{:rustler, "~> 0.34.0", [hex: :rustler, repo: "hexpm", optional: true]}, {:rustler_precompiled, "~> 0.7.2", [hex: :rustler_precompiled, repo: "hexpm", optional: false]}], "hexpm", "a583dcaf1100c6c8cb7a24c8567e63ae402aa8a686197a77b044877fbd75275f"},
+  "rustler_precompiled": {:hex, :rustler_precompiled, "0.7.3", "42cb9449785cd86c87453e39afdd27a0bdfa5c77a4ec5dc5ce45112e06b9f89b", [:mix], [{:castore, "~> 0.1 or ~> 1.0", [hex: :castore, repo: "hexpm", optional: false]}, {:rustler, "~> 0.23", [hex: :rustler, repo: "hexpm", optional: true]}], "hexpm", "cbc4b3777682e5f6f43ed39b0e0b4a42dccde8053aba91b4514e8f5ff9a5ac6d"},
+  "silver_orb": {:hex, :silver_orb, "0.0.10", "319de3132bd559ad53284bcefb2a75df1d058c39afcc51b34a00c14bc0f09687", [:mix], [{:orb, "~> 0.1.0", [hex: :orb, repo: "hexpm", optional: false]}], "hexpm", "0e312b6fdff8a31fd5a331f7d867cb7d7bbb13e1c319e6ec9bef16e1d968ca09"},
+}
