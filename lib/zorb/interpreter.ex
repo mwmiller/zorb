@@ -162,8 +162,9 @@ defmodule Zorb.Interpreter do
     read_word(addr + 12)
   end
 
-  defw get_prop_address(object: I32, property: I32), I32, addr: I32, byte: I32, size: I32, prop_num: I32 do
+  defw get_prop_address(object: I32, property: I32), I32, addr: I32, byte: I32, size: I32, prop_num: I32, byte2: I32 do
     addr = get_prop_table_address(object)
+    # Skip object name
     addr = addr + I32.shl(read_byte(addr), 1) + 1
     loop PropLoop do
       byte = read_byte(addr)
@@ -173,30 +174,66 @@ defmodule Zorb.Interpreter do
         size = I32.shr_u(byte, 5) + 1
         if prop_num === property, do: return(addr + 1)
         addr = addr + size + 1
-      else
-        return(0)
-      end
+        else
+          prop_num = I32.band(byte, 0x3F)
+          if I32.band(byte, 0x80) > 0 do
+            byte2 = read_byte(addr + 1)
+            size = I32.band(byte2, 0x3F)
+            if size === 0, do: size = 64
+            if prop_num === property, do: return(addr + 2)
+            addr = addr + size + 2
+          else
+            size = if I32.band(byte, 0x40) > 0, do: I32.const(2), else: I32.const(1)
+            if prop_num === property, do: return(addr + 1)
+            addr = addr + size + 1
+          end
+        end
       PropLoop.continue(if: prop_num > property)
     end
     0
   end
 
-  defw step(), byte: I32, types_byte: I32 do
+  defw step(), byte: I32, types_byte: I32, opcode: I32, types_byte2: I32 do
     byte = fetch_byte()
-    if byte < 0x80 do
+    
+    if byte < 0x80 do # 2OP
       execute_2op(I32.band(byte, 0x1F), fetch_operand(if I32.band(byte, 0x40) > 0, result: I32, do: type_var(), else: type_small()), fetch_operand(if I32.band(byte, 0x20) > 0, result: I32, do: type_var(), else: type_small()))
       return()
     end
-    if byte < 0xB0 do
+
+    if byte < 0xB0 do # 1OP
       execute_1op(I32.band(byte, 0x0F), fetch_operand(I32.band(I32.shr_u(byte, 4), 0x03)))
       return()
     end
-    if byte < 0xC0 do
+
+    if byte < 0xC0 do # 0OP
       execute_0op(I32.band(byte, 0x0F))
       return()
     end
+
+    opcode = I32.band(byte, 0x1F)
     types_byte = fetch_byte()
-    execute_var(I32.band(byte, 0x1F), fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)), fetch_operand(I32.band(I32.shr_u(types_byte, 4), 0x03)), fetch_operand(I32.band(I32.shr_u(types_byte, 2), 0x03)), fetch_operand(I32.band(types_byte, 0x03)))
+    if opcode === 0x0C or opcode === 0x1A do
+      types_byte2 = fetch_byte()
+      execute_var8(opcode, 
+        fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)),
+        fetch_operand(I32.band(I32.shr_u(types_byte, 4), 0x03)),
+        fetch_operand(I32.band(I32.shr_u(types_byte, 2), 0x03)),
+        fetch_operand(I32.band(types_byte, 0x03)),
+        fetch_operand(I32.band(I32.shr_u(types_byte2, 6), 0x03)),
+        fetch_operand(I32.band(I32.shr_u(types_byte2, 4), 0x03)),
+        fetch_operand(I32.band(I32.shr_u(types_byte2, 2), 0x03)),
+        fetch_operand(I32.band(types_byte2, 0x03))
+      )
+      return()
+    end
+
+    execute_var(opcode, 
+      fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)),
+      fetch_operand(I32.band(I32.shr_u(types_byte, 4), 0x03)),
+      fetch_operand(I32.band(I32.shr_u(types_byte, 2), 0x03)),
+      fetch_operand(I32.band(types_byte, 0x03))
+    )
   end
 
   defw execute_2op(opcode: I32, op1: I32, op2: I32), addr: I32, byte: I32, prop_num: I32, size: I32 do
@@ -231,7 +268,22 @@ defmodule Zorb.Interpreter do
       if addr === 0 do
         fetch_result_and_store(read_word(@object_table_base + I32.shl(op2 - 1, 1)))
       else
-        if I32.shr_u(read_byte(addr - 1), 5) === 0, do: fetch_result_and_store(read_byte(addr)), else: fetch_result_and_store(read_word(addr))
+        if @version <= 3 do
+          if I32.shr_u(read_byte(addr - 1), 5) === 0, do: fetch_result_and_store(read_byte(addr)), else: fetch_result_and_store(read_word(addr))
+        else
+          # V4+: if bit 7 of first size byte is set, there's a second size byte.
+          # But get_prop_address already handled finding 'addr'.
+          # Standard says: "If the property exists, its value is... if size is 1, a single byte; if size is 2, a word."
+          # We need the size here.
+          byte = read_byte(addr - 1)
+          if I32.band(byte, 0x80) > 0 do
+             size = I32.band(read_byte(addr - 1), 0x3F)
+             if size === 1, do: fetch_result_and_store(read_byte(addr)), else: fetch_result_and_store(read_word(addr))
+          else
+             size = if I32.band(byte, 0x40) > 0, do: I32.const(2), else: I32.const(1)
+             if size === 1, do: fetch_result_and_store(read_byte(addr)), else: fetch_result_and_store(read_word(addr))
+          end
+        end
       end
       return()
     end
@@ -303,22 +355,30 @@ defmodule Zorb.Interpreter do
   end
 
   defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32), addr: I32 do
-    if opcode === 0 do
+    if opcode === 0x00 do
       if op1 === 0, do: return(fetch_result_and_store(0))
       do_call(unpack_address(op1), fetch_byte())
       return()
     end
-    if opcode === 1, do: return(write_word(op1 + I32.shl(op2, 1), op3))
-    if opcode === 2, do: return(Memory.store!(I32.U8, op1 + op2, op3))
-    if opcode === 3 do
+    if opcode === 0x01, do: return(write_word(op1 + I32.shl(op2, 1), op3))
+    if opcode === 0x02, do: return(Memory.store!(I32.U8, op1 + op2, op3))
+    if opcode === 0x03 do
       addr = get_prop_address(op1, op2)
       if addr !== 0 do
         if I32.shr_u(read_byte(addr - 1), 5) === 0, do: Memory.store!(I32.U8, addr, op3), else: write_word(addr, op3)
       end
       return()
     end
-    if opcode === 5, do: return(Zorb.Interpreter.ZIO.print_char(op1))
-    if opcode === 7, do: return(fetch_result_and_store(1))
+    if opcode === 0x05, do: return(Zorb.Interpreter.ZIO.print_char(op1))
+    if opcode === 0x07, do: return(fetch_result_and_store(1))
+    if opcode === 0x08, do: return(push_stack(op1))
+    if opcode === 0x09, do: return(write_variable(op1, pop_stack()))
+    if opcode === 0x19, do: return(do_call(unpack_address(op1), 0xFF))
+  end
+
+  defw execute_var8(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32, op5: I32, op6: I32, op7: I32, op8: I32) do
+    if opcode === 0x0C, do: return(do_call(unpack_address(op1), fetch_byte()))
+    if opcode === 0x1A, do: return(do_call(unpack_address(op1), 0xFF))
   end
 
   defw print_zstring(), word: I32, done: I32, z1: I32, z2: I32, z3: I32, saved_shift: I32 do
