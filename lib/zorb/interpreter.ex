@@ -1,9 +1,15 @@
+defmodule Zorb.Interpreter.ZIO do
+  use Orb.Import, name: :zio
+  defw print_char(char: Orb.I32)
+end
+
 defmodule Zorb.Interpreter do
   use Orb
 
   defp header_version, do: 0x00
   defp header_initial_pc, do: 0x06
   defp header_globals_base, do: 0x0C
+  defp header_object_table_base, do: 0x0A
 
   Memory.pages(8) # 512KB
 
@@ -14,27 +20,17 @@ defmodule Zorb.Interpreter do
     @fp 0
     @stack_base 0
     @globals_base 0
+    @object_table_base 0
     @alphabet_shift 0 # 0=A0, 1=A1, 2=A2
   end
 
-  # Alphabet tables (V3+)
-  # A0: a-z
-  # A1: A-Z
-  # A2: \n, ^, 0-9, ., ,, !, ?, _, #, ', ", /, \, -, :, (,)
-  # These are usually standard but can be overridden in later versions.
-  # For now we'll hardcode the standard ASCII equivalents.
-
-  defmodule ZIO do
-    use Orb.Import, name: :zio
-    defw print_char(char: I32)
-  end
-
-  Orb.Import.register(ZIO)
+  Orb.Import.register(Zorb.Interpreter.ZIO)
 
   defw init(stack_offset: I32) do
     @version = Memory.load!(I32.U8, header_version())
     @pc = read_word(header_initial_pc())
     @globals_base = read_word(header_globals_base())
+    @object_table_base = read_word(header_object_table_base())
     @stack_base = stack_offset
     @sp = 0
     @fp = 0
@@ -146,6 +142,31 @@ defmodule Zorb.Interpreter do
     0
   end
 
+  defw get_object_address(object: I32), I32 do
+    if @version <= 3 do
+      return(@object_table_base + 62 + (object - 1) * 9)
+    end
+    @object_table_base + 126 + (object - 1) * 14
+  end
+
+  defw get_object_parent(object: I32), I32, addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: return(read_byte(addr + 4))
+    read_word(addr + 6)
+  end
+
+  defw get_object_sibling(object: I32), I32, addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: return(read_byte(addr + 5))
+    read_word(addr + 8)
+  end
+
+  defw get_object_child(object: I32), I32, addr: I32 do
+    addr = get_object_address(object)
+    if @version <= 3, do: return(read_byte(addr + 6))
+    read_word(addr + 10)
+  end
+
   defw step(), byte: I32, op1: I32, op2: I32, op3: I32, op4: I32, type1: I32, type2: I32, type3: I32, type4: I32, opcode: I32, types_byte: I32 do
     byte = fetch_byte()
     
@@ -194,8 +215,24 @@ defmodule Zorb.Interpreter do
     if opcode === 24, do: return(fetch_result_and_store(I32.rem_s(op1, op2)))
   end
 
-  defw execute_1op(opcode: I32, op1: I32) do
+  defw execute_1op(opcode: I32, op1: I32), sibling: I32, child: I32 do
     if opcode === 0, do: return(fetch_branch(op1 === 0))
+    if opcode === 1 do # get_sibling
+      sibling = get_object_sibling(op1)
+      fetch_result_and_store(sibling)
+      fetch_branch(sibling !== 0)
+      return()
+    end
+    if opcode === 2 do # get_child
+      child = get_object_child(op1)
+      fetch_result_and_store(child)
+      fetch_branch(child !== 0)
+      return()
+    end
+    if opcode === 3 do # get_parent
+      fetch_result_and_store(get_object_parent(op1))
+      return()
+    end
     if opcode === 5, do: return(write_variable(op1, read_variable(op1) + 1))
     if opcode === 6, do: return(write_variable(op1, read_variable(op1) - 1))
     if opcode === 15, do: return(fetch_result_and_store(I32.xor(op1, 0xFFFF)))
@@ -218,9 +255,9 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defw decode_zchar(zchar: I32), shift: I32 do
+  defw decode_zchar(zchar: I32) do
     if zchar === 0 do # Space
-      ZIO.print_char(32)
+      Zorb.Interpreter.ZIO.print_char(32)
       @alphabet_shift = 0
       return()
     end
@@ -236,19 +273,18 @@ defmodule Zorb.Interpreter do
     
     # Simple mapping for A0 (a-z)
     if @alphabet_shift === 0 do
-      ZIO.print_char(zchar + 91) # 6 -> 97 ('a')
+      Zorb.Interpreter.ZIO.print_char(zchar + 91) # 6 -> 97 ('a')
       @alphabet_shift = 0
       return()
     end
     
     # Simple mapping for A1 (A-Z)
     if @alphabet_shift === 1 do
-      ZIO.print_char(zchar + 59) # 6 -> 65 ('A')
+      Zorb.Interpreter.ZIO.print_char(zchar + 59) # 6 -> 65 ('A')
       @alphabet_shift = 0
       return()
     end
     
-    # A2 handling... (omitted for brevity, just reset for now)
     @alphabet_shift = 0
   end
 
@@ -269,7 +305,7 @@ defmodule Zorb.Interpreter do
     end
     if opcode === 1, do: return(write_word(op1 + I32.shl(op2, 1), op3))
     if opcode === 2, do: return(Memory.store!(I32.U8, op1 + op2, op3))
-    if opcode === 5, do: return(ZIO.print_char(op1))
+    if opcode === 5, do: return(Zorb.Interpreter.ZIO.print_char(op1))
   end
 
   defw do_call(address: I32, result_var: I32), locals_count: I32, i: I32, old_fp: I32 do

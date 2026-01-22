@@ -243,4 +243,44 @@ defmodule Zorb.InterpreterTest do
     assert_receive {:print, 98} # 'b'
     assert_receive {:print, 99} # 'c'
   end
+
+  test "object table navigation" do
+    # V3 header
+    # 0x0A: Object Table = 0x0200
+    header = <<
+      3, 0, 0, 0, 0, 0, 1, 0,
+      0, 0, 0x02, 0x00, 2, 0, 0, 0
+    >>
+
+    # Object Table at 0x0200:
+    # 31 words of defaults (62 bytes) -> 0x023E
+    # Object 1 (at 0x023E): Parent=0, Sibling=0, Child=2 (offset 6)
+    # Object 2 (at 0x0247): Parent=1, Sibling=3, Child=0
+    # Object 3 (at 0x0250): Parent=1, Sibling=0, Child=0
+    
+    # 62 bytes of zeros for defaults
+    defaults = :binary.copy(<<0>>, 62)
+    obj1 = <<0, 0, 0, 0, 0, 0, 2, 0, 0>>
+    obj2 = <<0, 0, 0, 0, 1, 3, 0, 0, 0>>
+    obj3 = <<0, 0, 0, 0, 1, 0, 0, 0, 0>>
+
+    # code: get_child 1 -> store in G16, branch if true (offset 4)
+    # 1OP: 0x80 | 0x10 (Small) | 0x02 (get_child) -> 0x92
+    code = <<0x92, 1, 16, 0xC4>>
+
+    inst = OrbWasmtime.Instance.run(Interpreter, [
+      {:zio, :print_char, fn _ -> 0 end}
+    ])
+    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    OrbWasmtime.Instance.write_memory(inst, 0x0200, :binary.bin_to_list(defaults <> obj1 <> obj2 <> obj3))
+    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    OrbWasmtime.Instance.call(inst, :init, 0x8000)
+    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    
+    OrbWasmtime.Instance.call(inst, :step)
+    
+    assert OrbWasmtime.Instance.call(inst, :read_variable, 16) == 2
+    # 0x0100 + 2 (instr) + 1 (res var) + 1 (branch) + 4 - 2 = 0x0106
+    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0106
+  end
 end
