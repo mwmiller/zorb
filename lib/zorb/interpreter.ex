@@ -8,8 +8,9 @@ defmodule Zorb.Interpreter do
 
   defp header_version, do: 0x00
   defp header_initial_pc, do: 0x06
-  defp header_globals_base, do: 0x0C
+  defp header_dictionary_base, do: 0x08
   defp header_object_table_base, do: 0x0A
+  defp header_globals_base, do: 0x0C
   defp header_abbreviations_base, do: 0x18
 
   Memory.pages(8) # 512KB
@@ -21,6 +22,7 @@ defmodule Zorb.Interpreter do
     @fp 0
     @stack_base 0
     @globals_base 0
+    @dictionary_base 0
     @object_table_base 0
     @abbreviations_base 0
     @alphabet_shift 0 # 0=A0, 1=A1, 2=A2
@@ -34,6 +36,7 @@ defmodule Zorb.Interpreter do
     @version = Memory.load!(I32.U8, header_version())
     @pc = read_word(header_initial_pc())
     @globals_base = read_word(header_globals_base())
+    @dictionary_base = read_word(header_dictionary_base())
     @object_table_base = read_word(header_object_table_base())
     @abbreviations_base = read_word(header_abbreviations_base())
     @stack_base = stack_offset
@@ -174,20 +177,20 @@ defmodule Zorb.Interpreter do
         size = I32.shr_u(byte, 5) + 1
         if prop_num === property, do: return(addr + 1)
         addr = addr + size + 1
+      else
+        prop_num = I32.band(byte, 0x3F)
+        if I32.band(byte, 0x80) > 0 do
+          byte2 = read_byte(addr + 1)
+          size = I32.band(byte2, 0x3F)
+          if size === 0, do: size = 64
+          if prop_num === property, do: return(addr + 2)
+          addr = addr + size + 2
         else
-          prop_num = I32.band(byte, 0x3F)
-          if I32.band(byte, 0x80) > 0 do
-            byte2 = read_byte(addr + 1)
-            size = I32.band(byte2, 0x3F)
-            if size === 0, do: size = 64
-            if prop_num === property, do: return(addr + 2)
-            addr = addr + size + 2
-          else
-            size = if I32.band(byte, 0x40) > 0, do: I32.const(2), else: I32.const(1)
-            if prop_num === property, do: return(addr + 1)
-            addr = addr + size + 1
-          end
+          size = if I32.band(byte, 0x40) > 0, do: I32.const(2), else: I32.const(1)
+          if prop_num === property, do: return(addr + 1)
+          addr = addr + size + 1
         end
+      end
       PropLoop.continue(if: prop_num > property)
     end
     0
@@ -213,7 +216,7 @@ defmodule Zorb.Interpreter do
 
     opcode = I32.band(byte, 0x1F)
     types_byte = fetch_byte()
-    if opcode === 0x0C or opcode === 0x1A do
+    if I32.or(opcode === 0x0C, opcode === 0x1A) do
       types_byte2 = fetch_byte()
       execute_var8(opcode, 
         fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)),
@@ -271,10 +274,6 @@ defmodule Zorb.Interpreter do
         if @version <= 3 do
           if I32.shr_u(read_byte(addr - 1), 5) === 0, do: fetch_result_and_store(read_byte(addr)), else: fetch_result_and_store(read_word(addr))
         else
-          # V4+: if bit 7 of first size byte is set, there's a second size byte.
-          # But get_prop_address already handled finding 'addr'.
-          # Standard says: "If the property exists, its value is... if size is 1, a single byte; if size is 2, a word."
-          # We need the size here.
           byte = read_byte(addr - 1)
           if I32.band(byte, 0x80) > 0 do
              size = I32.band(read_byte(addr - 1), 0x3F)
@@ -354,6 +353,81 @@ defmodule Zorb.Interpreter do
     if opcode === 8, do: return(do_return(pop_stack()))
   end
 
+  defwp char_to_zchar(char: I32), I32 do
+    if I32.band(I32.ge_u(char, 97), I32.le_u(char, 122)), do: return(char - 97 + 6)
+    I32.const(5)
+  end
+
+  defwp get_max_words(), I32 do
+    if @version <= 3, do: return(I32.const(2))
+    I32.const(3)
+  end
+
+  defw encode_word(input_addr: I32, input_len: I32, output_addr: I32), i: I32, word_idx: I32, z1: I32, z2: I32, z3: I32, word: I32, max_words: I32 do
+    max_words = get_max_words()
+    i = 0
+    word_idx = 0
+    loop WordLoop do
+      z1 = 5
+      z2 = 5
+      z3 = 5
+      if I32.lt_u(i, input_len) do
+        z1 = char_to_zchar(read_byte(input_addr + i))
+        i = i + 1
+      end
+      if I32.lt_u(i, input_len) do
+        z2 = char_to_zchar(read_byte(input_addr + i))
+        i = i + 1
+      end
+      if I32.lt_u(i, input_len) do
+        z3 = char_to_zchar(read_byte(input_addr + i))
+        i = i + 1
+      end
+      word = I32.or(I32.shl(z1, 10), I32.or(I32.shl(z2, 5), z3))
+      word_idx = word_idx + 1
+      if word_idx === max_words, do: word = I32.or(word, I32.const(0x8000))
+      write_word(output_addr + (word_idx - 1) * 2, word)
+      WordLoop.continue(if: I32.lt_u(word_idx, max_words))
+    end
+  end
+
+  defwp get_encoded_len(), I32 do
+    if @version <= 3, do: return(I32.const(4))
+    I32.const(6)
+  end
+
+  defw lookup_dictionary(encoded_addr: I32, dict_addr: I32), I32, num_separators: I32, entry_len: I32, num_entries: I32, entries_start: I32, i: I32, match: I32, entry_addr: I32, j: I32, encoded_len: I32 do
+    if dict_addr === 0, do: dict_addr = @dictionary_base
+    num_separators = read_byte(dict_addr)
+    entry_len = read_byte(dict_addr + num_separators + 1)
+    num_entries = read_word(dict_addr + num_separators + 2)
+    entries_start = dict_addr + num_separators + 4
+    encoded_len = get_encoded_len()
+    
+    i = 0
+    loop SearchLoop do
+      if I32.lt_u(i, num_entries) do
+        entry_addr = entries_start + i * entry_len
+        match = 1
+        j = 0
+        loop CompareLoop do
+          if read_byte(encoded_addr + j) !== read_byte(entry_addr + j) do
+            match = 0
+          else
+            j = j + 1
+            if I32.lt_u(j, encoded_len), do: CompareLoop.continue()
+          end
+        end
+        
+        if match > 0, do: return(entry_addr)
+        
+        i = i + 1
+        SearchLoop.continue()
+      end
+    end
+    0
+  end
+
   defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32), addr: I32 do
     if opcode === 0x00 do
       if op1 === 0, do: return(fetch_result_and_store(0))
@@ -369,11 +443,110 @@ defmodule Zorb.Interpreter do
       end
       return()
     end
+    if opcode === 0x04 do
+      # read text_buf parse_buf
+      # This usually waits for host input.
+      # For now, let's just assume empty input or mock it.
+      Memory.store!(I32.U8, op1 + (if @version <= 4, do: I32.const(1), else: I32.const(2)), 0) # characters Typed
+      if op2 !== 0, do: do_tokenise(op1, op2, 0)
+      return()
+    end
     if opcode === 0x05, do: return(Zorb.Interpreter.ZIO.print_char(op1))
     if opcode === 0x07, do: return(fetch_result_and_store(1))
     if opcode === 0x08, do: return(push_stack(op1))
     if opcode === 0x09, do: return(write_variable(op1, pop_stack()))
     if opcode === 0x19, do: return(do_call(unpack_address(op1), 0xFF))
+    if opcode === 0x1B, do: return(do_tokenise(op1, op2, op3))
+  end
+
+  defw is_separator(char: I32, dict_addr: I32), I32, num: I32, i: I32, result: I32 do
+    if dict_addr === 0, do: dict_addr = @dictionary_base
+    num = read_byte(dict_addr)
+    i = 0
+    result = 0
+    loop SepLoop do
+      if I32.lt_u(i, num) do
+        if read_byte(dict_addr + 1 + i) === char do
+          result = 1
+        else
+          i = i + 1
+          SepLoop.continue()
+        end
+      end
+    end
+    result
+  end
+
+  defwp get_text_start_addr(text_buf: I32), I32 do
+    if @version <= 4, do: return(text_buf + 1)
+    text_buf + 2
+  end
+
+  defwp get_token_offset(word_start: I32), I32 do
+    if @version <= 4, do: return(word_start + 1)
+    word_start + 2
+  end
+
+  defw do_tokenise(text_buf: I32, parse_buf: I32, dict_addr: I32), text_len: I32, i: I32, word_start: I32, word_len: I32, char: I32, encoded: I32, dict_match: I32, token_count: I32, parse_max: I32, addr: I32, text_start: I32 do
+    text_start = get_text_start_addr(text_buf)
+    parse_max = read_byte(parse_buf)
+    token_count = 0
+    encoded = 0x10000
+    
+    # Determine text_len for V1-4 (scan for 0) or V5+ (read byte 1)
+    if @version <= 4 do
+      i = 0
+      text_len = read_byte(text_buf) # Actually max length, but we use it as a safety bound
+      loop ScanZero do
+        if I32.lt_u(i, text_len) do
+          if read_byte(text_start + i) !== 0 do
+            i = i + 1
+            ScanZero.continue()
+          end
+        end
+      end
+      text_len = i
+    else
+      text_len = read_byte(text_buf + 1)
+    end
+
+    i = 0
+    loop TokenLoop do
+      if I32.lt_u(i, text_len) do
+        char = read_byte(text_start + i)
+        if char === 32 do
+          i = i + 1
+          TokenLoop.continue()
+        end
+        
+        word_start = i
+        if is_separator(char, dict_addr) do
+          word_len = 1
+          i = i + 1
+        else
+          loop WordLoop do
+            i = i + 1
+            if I32.lt_u(i, text_len) do
+              char = read_byte(text_start + i)
+              if I32.band(char !== 32, I32.eqz(is_separator(char, dict_addr))), do: WordLoop.continue()
+            end
+          end
+          word_len = i - word_start
+        end
+        
+        if I32.lt_u(token_count, parse_max) do
+          encode_word(text_start + word_start, word_len, encoded)
+          dict_match = lookup_dictionary(encoded, dict_addr)
+          addr = parse_buf + 2 + token_count * 4
+          write_word(addr, dict_match)
+          Memory.store!(I32.U8, addr + 2, word_len)
+          Memory.store!(I32.U8, addr + 3, get_token_offset(word_start))
+          token_count = token_count + 1
+        end
+        TokenLoop.continue()
+      end
+    end
+    Memory.store!(I32.U8, parse_buf + 1, token_count)
   end
 
   defw execute_var8(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32, op5: I32, op6: I32, op7: I32, op8: I32) do
