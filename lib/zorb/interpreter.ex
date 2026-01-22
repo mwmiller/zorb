@@ -51,6 +51,7 @@ defmodule Zorb.Interpreter do
   defp header_globals_base, do: 0x0C
   defp header_abbreviations_base, do: 0x18
 
+  # Prime number of pages
   Memory.pages(13)
 
   global do
@@ -62,12 +63,19 @@ defmodule Zorb.Interpreter do
     @globals_base 0
     @dictionary_base 0
     @object_table_base 0
+    @object_table_start 0
     @abbreviations_base 0
     # 0=A0, 1=A1, 2=A2
     @alphabet_shift 0
     # 0=none, 1=A1, 2=A2, 3=A3
     @abbrev_mode 0
     @recursion_depth 0
+    @packed_address_shift 0
+    @object_entry_size 0
+    @object_parent_offset 0
+    @object_sibling_offset 0
+    @object_child_offset 0
+    @object_property_table_offset 0
   end
 
   Orb.Import.register(Zorb.Interpreter.ZIO)
@@ -83,6 +91,28 @@ defmodule Zorb.Interpreter do
     @sp = 0
     @fp = 0
     @recursion_depth = 0
+
+    if @version <= 3 do
+      @packed_address_shift = 1
+      @object_entry_size = 9
+      @object_parent_offset = 4
+      @object_sibling_offset = 5
+      @object_child_offset = 6
+      @object_property_table_offset = 7
+      @object_table_start = @object_table_base + 62
+    else
+      @packed_address_shift = 2
+      @object_entry_size = 14
+      @object_parent_offset = 6
+      @object_sibling_offset = 8
+      @object_child_offset = 10
+      @object_property_table_offset = 12
+      @object_table_start = @object_table_base + 126
+    end
+
+    # V8 uses shift 3, but we mainly support V3-5 for now
+    if @version === 8, do: @packed_address_shift = 3
+
     push_stack(0)
     push_stack(0)
     push_stack(0xFF)
@@ -91,9 +121,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw unpack_address(address: T.PackedAddress), T.Address do
-    if @version <= 3, do: return(I32.shl(address, 1))
-    if @version <= 5, do: return(I32.shl(address, 2))
-    I32.shl(address, 3)
+    I32.shl(address, @packed_address_shift)
   end
 
   defw write_word(address: T.Address, value: I32) do
@@ -175,32 +203,30 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_address(object: T.Object), T.Address do
-    if @version <= 3, do: return(@object_table_base + 62 + (object - 1) * 9)
-    @object_table_base + 126 + (object - 1) * 14
+    @object_table_start + (object - 1) * @object_entry_size
   end
 
   defw get_object_parent(object: T.Object), T.Object, addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: return(read_byte(addr + 4))
-    read_word(addr + 6)
+    if @version <= 3, do: return(read_byte(addr + @object_parent_offset))
+    read_word(addr + @object_parent_offset)
   end
 
   defw get_object_sibling(object: T.Object), T.Object, addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: return(read_byte(addr + 5))
-    read_word(addr + 8)
+    if @version <= 3, do: return(read_byte(addr + @object_sibling_offset))
+    read_word(addr + @object_sibling_offset)
   end
 
   defw get_object_child(object: T.Object), T.Object, addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: return(read_byte(addr + 6))
-    read_word(addr + 10)
+    if @version <= 3, do: return(read_byte(addr + @object_child_offset))
+    read_word(addr + @object_child_offset)
   end
 
   defw get_prop_table_address(object: T.Object), T.Address, addr: T.Address do
     addr = get_object_address(object)
-    if @version <= 3, do: return(read_word(addr + 7))
-    read_word(addr + 12)
+    read_word(addr + @object_property_table_offset)
   end
 
   defw get_prop_address(object: T.Object, property: T.Property), T.Address,
@@ -616,9 +642,28 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defwp get_encoded_len(), I32 do
-    if @version <= 3, do: return(I32.const(4))
-    I32.const(6)
+  defwp compare_encoded(addr1: T.Address, addr2: T.Address), I32,
+    w1_a: I32,
+    w1_b: I32,
+    w2_a: I32,
+    w2_b: I32,
+    w3_a: I32,
+    w3_b: I32 do
+    w1_a = read_word(addr1)
+    w1_b = read_word(addr2)
+    if w1_a !== w1_b, do: return(if I32.gt_u(w1_a, w1_b), do: I32.const(1), else: I32.const(2))
+
+    w2_a = read_word(addr1 + 2)
+    w2_b = read_word(addr2 + 2)
+    if w2_a !== w2_b, do: return(if I32.gt_u(w2_a, w2_b), do: I32.const(1), else: I32.const(2))
+
+    if @version >= 4 do
+      w3_a = read_word(addr1 + 4)
+      w3_b = read_word(addr2 + 4)
+      if w3_a !== w3_b, do: return(if I32.gt_u(w3_a, w3_b), do: I32.const(1), else: I32.const(2))
+    end
+
+    I32.const(0)
   end
 
   defw lookup_dictionary(encoded_addr: T.Address, dict_addr: T.Address), T.Address,
@@ -626,38 +671,34 @@ defmodule Zorb.Interpreter do
     entry_len: I32,
     num_entries: I32,
     entries_start: T.Address,
-    i: I32,
-    match: I32,
-    entry_addr: T.Address,
-    j: I32,
-    encoded_len: I32 do
+    low: I32,
+    high: I32,
+    mid: I32,
+    cmp: I32,
+    entry_addr: T.Address do
     if dict_addr === 0, do: dict_addr = @dictionary_base
     num_separators = read_byte(dict_addr)
     entry_len = read_byte(dict_addr + num_separators + 1)
     num_entries = read_word(dict_addr + num_separators + 2)
     entries_start = dict_addr + num_separators + 4
-    encoded_len = get_encoded_len()
 
-    i = 0
+    low = 0
+    high = num_entries - 1
 
     loop SearchLoop do
-      if I32.lt_u(i, num_entries) do
-        entry_addr = entries_start + i * entry_len
-        match = 1
-        j = 0
+      if I32.le_s(low, high) do
+        mid = (low + high) / 2
+        entry_addr = entries_start + mid * entry_len
 
-        loop CompareLoop do
-          if read_byte(encoded_addr + j) !== read_byte(entry_addr + j) do
-            match = 0
-          else
-            j = j + 1
-            if I32.lt_u(j, encoded_len), do: CompareLoop.continue()
-          end
+        cmp = compare_encoded(encoded_addr, entry_addr)
+        if cmp === 0, do: return(entry_addr)
+
+        if cmp === 1 do
+          low = mid + 1
+        else
+          high = mid - 1
         end
 
-        if match > 0, do: return(entry_addr)
-
-        i = i + 1
         SearchLoop.continue()
       end
     end
