@@ -10,6 +10,7 @@ Zorb is a high-performance, idiomatic WebAssembly Z-machine interpreter built us
 - **Performance**: Version-specific offsets and packed address shifts are cached in global variables during initialization. Dictionary lookups use an efficient binary search. Fast `load_story` bulk copy implemented.
 - **I/O & Opcodes**:
   - Implemented `read`, `print_num`, `read_char`, `print_char`, `print_obj`, `print_zstring`, `print_unicode`, `check_unicode`, `set_font`.
+  - Implemented `test_attr`, `set_attr`, `clear_attr`, `test`, `get_prop_addr`.
   - Robust opcode dispatch distinguishing VAR vs 2OP-VAR forms and handling extended opcodes.
   - ZSCII handling for input and output, including Unicode support and Font 3 mapping.
   - **Standalone**: Font state and character mapping are handled *entirely* within the WASM module (`Zorb.Interpreter`), reducing host dependency.

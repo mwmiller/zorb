@@ -11,9 +11,18 @@ defmodule Zorb.TestRuntime do
 
         impl_wrapper = fn _ctx, args ->
           # IO.inspect({name, args}, label: "Wasmex Callback")
-          args = if is_list(args), do: args, else: [args]
-          res = apply(func, args)
-          if results == [], do: nil, else: res
+          args_list =
+            case args do
+              l when is_list(l) -> l
+              val -> [val]
+            end
+
+          res = apply(func, args_list)
+
+          case results do
+            [] -> nil
+            _ -> res
+          end
         end
 
         put_in(acc, [Access.key(ns_str, %{}), name_str], {:fn, params, results, impl_wrapper})
@@ -31,7 +40,13 @@ defmodule Zorb.TestRuntime do
   def write_memory(instance, offset, data) do
     {:ok, memory} = Wasmex.memory(instance)
     {:ok, store} = Wasmex.store(instance)
-    bin = if is_list(data), do: :binary.list_to_bin(data), else: data
+
+    bin =
+      case data do
+        l when is_list(l) -> :binary.list_to_bin(l)
+        b -> b
+      end
+
     Wasmex.Memory.write_binary(store, memory, offset, bin)
   end
 
@@ -40,6 +55,8 @@ defmodule Zorb.TestRuntime do
     {:ok, store} = Wasmex.store(instance)
     Wasmex.Memory.read_binary(store, memory, offset, length)
   end
+
+  def call(instance, name), do: call(instance, name, [])
 
   def call(instance, name, args) when is_list(args) do
     name_str = Atom.to_string(name)
@@ -51,8 +68,8 @@ defmodule Zorb.TestRuntime do
     end
   end
 
-  def call(instance, name), do: call(instance, name, [])
   def call(instance, name, arg1), do: call(instance, name, [arg1])
+
   def call(instance, name, arg1, arg2), do: call(instance, name, [arg1, arg2])
   def call(instance, name, arg1, arg2, arg3), do: call(instance, name, [arg1, arg2, arg3])
 end

@@ -462,14 +462,24 @@ defmodule Zorb.Interpreter do
     if opcode === 2, do: return(fetch_branch(I32.lt_s(op1, op2)))
     if opcode === 3, do: return(fetch_branch(I32.gt_s(op1, op2)))
 
+    # test_attr
     if opcode === 4 do
+      addr = get_object_address(op1)
+      byte = read_byte(addr + I32.shr_u(op2, 3))
+      fetch_branch(I32.band(byte, I32.shl(1, 7 - I32.band(op2, 7))) !== 0)
+      return()
+    end
+
+    # set_attr
+    if opcode === 5 do
       addr = get_object_address(op1)
       byte = read_byte(addr + I32.shr_u(op2, 3))
       write_byte(addr + I32.shr_u(op2, 3), I32.or(byte, I32.shl(1, 7 - I32.band(op2, 7))))
       return()
     end
 
-    if opcode === 5 do
+    # clear_attr
+    if opcode === 6 do
       addr = get_object_address(op1)
       byte = read_byte(addr + I32.shr_u(op2, 3))
 
@@ -481,15 +491,9 @@ defmodule Zorb.Interpreter do
       return()
     end
 
-    if opcode === 6 do
-      addr = get_object_address(op1)
-      byte = read_byte(addr + I32.shr_u(op2, 3))
-      fetch_branch(I32.band(byte, I32.shl(1, 7 - I32.band(op2, 7))) !== 0)
-      return()
-    end
-
     if opcode === 7, do: return(fetch_result_and_store(I32.band(op1, op2)))
     if opcode === 8, do: return(fetch_result_and_store(I32.or(op1, op2)))
+    if opcode === 9, do: return(fetch_branch(I32.band(op1, op2) === op2))
     if opcode === 13, do: return(write_variable(op1, op2))
 
     # insert_obj
@@ -536,6 +540,8 @@ defmodule Zorb.Interpreter do
 
       return()
     end
+
+    if opcode === 18, do: return(fetch_result_and_store(get_prop_address(op1, op2)))
 
     if opcode === 19 do
       addr = get_prop_table_address(op1)
