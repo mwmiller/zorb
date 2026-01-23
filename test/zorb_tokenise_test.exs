@@ -95,11 +95,12 @@ defmodule Zorb.InterpreterTest.Tokenise do
       6,
       0,
       1,
-      # "cat" in Z-chars: c=8, a=6, t=25 => 00100 00110 11001 => 0x2199
-      0x21,
-      0x99,
-      0x00,
-      0x00,
+      # "cat" in Z-chars: c=8, a=6, t=25 => 00100 00110 11001 => 0x20D9
+      # Word 2: 5, 5, 5 => 00101 00101 00101 => 0x14A5 | 0x8000 => 0x94A5
+      0x20,
+      0xD9,
+      0x94,
+      0xA5,
       0x00,
       0x00
     >>
@@ -129,8 +130,8 @@ defmodule Zorb.InterpreterTest.Tokenise do
     # Check parse buffer
     # Byte 1 should be 1
     assert OrbWasmtime.Instance.read_memory(inst, 0x0501, 1) == <<1>>
-    # Word at 0x0502 should be 0x0304 (dictionary entry address)
-    assert OrbWasmtime.Instance.read_memory(inst, 0x0502, 2) == <<0x03, 0x04>>
+    # Word at 0x0502 should be 0x0305 (dictionary entry address)
+    assert OrbWasmtime.Instance.read_memory(inst, 0x0502, 2) == <<0x03, 0x05>>
     # Byte at 0x0504 should be 3 (len)
     assert OrbWasmtime.Instance.read_memory(inst, 0x0504, 1) == <<3>>
     # Byte at 0x0505 should be 1 (start index in V1-4 is characters start at 1)

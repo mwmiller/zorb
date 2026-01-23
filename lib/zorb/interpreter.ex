@@ -633,7 +633,8 @@ defmodule Zorb.Interpreter do
     z2: T.ZChar,
     z3: T.ZChar,
     word: T.ZWord,
-    max_words: I32 do
+    max_words: I32,
+    addr: T.Address do
     max_words = get_max_words()
     i = 0
     word_idx = 0
@@ -661,7 +662,12 @@ defmodule Zorb.Interpreter do
       word = I32.or(I32.shl(z1, 10), I32.or(I32.shl(z2, 5), z3))
       word_idx = word_idx + 1
       if word_idx === max_words, do: word = I32.or(word, I32.const(0x8000))
-      write_word(output_addr + (word_idx - 1) * 2, word)
+
+      # Bypass write guard for internal encoding buffer
+      addr = output_addr + (word_idx - 1) * 2
+      Memory.store!(I32.U8, addr, I32.shr_u(word, 8))
+      Memory.store!(I32.U8, addr + 1, I32.band(word, 0xFF))
+
       WordLoop.continue(if: I32.lt_u(word_idx, max_words))
     end
   end

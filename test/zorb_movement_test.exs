@@ -89,14 +89,18 @@ defmodule Zorb.InterpreterTest.ObjectMovement do
 
     code = <<
       # insert_obj 2 1
-      0x80 + 0x40 + 0x06,
+      # VAR:6 (0xE6), Types: Small, Small (0x5F)
+      0xE6,
+      0x5F,
       2,
       1,
       # remove_obj 2
-      0x80 + 0x09,
+      # 1OP:9 (0x09), Small Constant (0x01) -> 10 01 1001 = 0x99
+      0x99,
       2,
       # insert_obj 3 1
-      0x80 + 0x40 + 0x06,
+      0xE6,
+      0x5F,
       3,
       1
     >>
