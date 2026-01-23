@@ -39,31 +39,32 @@ defmodule Zorb.InterpreterTest do
     >>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
     # Load header
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
     # Load code at PC 0x0100
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
 
     # Initialize interpreter. Let's say stack starts at 0x8000
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0100
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0100
 
     # Step once
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 0x0100 + 1 (opcode) + 1 (op1 small) + 1 (op2 small) + 1 (result var) = 0x0104
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0104
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0104
 
     # Check global variable 16 (at 0x0200)
     # read_variable(16) should return 7
-    assert OrbWasmtime.Instance.call(inst, :read_variable, 16) == 7
+    assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 7
   end
 
   test "je instruction" do
@@ -91,21 +92,22 @@ defmodule Zorb.InterpreterTest do
     code = <<0x01, 5, 5, 0xC4>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 0x0100 + 1 (opcode) + 1 (op1) + 1 (op2) + 1 (branch byte) = 0x0104 before branch
     # Branch offset 4: @pc = 0x0104 + 4 - 2 = 0x0106
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0106
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0106
   end
 
   test "1OP large constant and jz" do
@@ -135,21 +137,22 @@ defmodule Zorb.InterpreterTest do
     code = <<0x80, 0x00, 0x00, 0xC2>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 0x0100 + 1 (opcode) + 2 (large op) + 1 (branch byte) = 0x0104 before branch
     # Branch offset 2: @pc = 0x0104 + 2 - 2 = 0x0104
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0104
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0104
   end
 
   test "2OP with variable and false branch" do
@@ -177,24 +180,25 @@ defmodule Zorb.InterpreterTest do
     code = <<0x61, 1, 5, 0x43>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :write_variable, 1, 10)
+    Zorb.TestRuntime.call(inst, :write_variable, 1, 10)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 0x0100 + 1 (opcode) + 1 (op1 var) + 1 (op2 small) + 1 (branch byte) = 0x0104 before branch
     # 10 != 5 (False). Branch "if false" (bit 7=0) -> do branch.
     # Branch offset 3: @pc = 0x0104 + 3 - 2 = 0x0105
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0105
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0105
   end
 
   test "negative branch offset" do
@@ -222,21 +226,22 @@ defmodule Zorb.InterpreterTest do
     code = <<0x80, 0x00, 0x00, 0xBF, 0xFE>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 0x0100 + 1 (opcode) + 2 (large op) + 2 (long branch) = 0x0105 before branch
     # Offset -2: @pc = 0x0105 - 2 - 2 = 0x0101
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0101
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0101
   end
 
   test "call and return" do
@@ -272,29 +277,30 @@ defmodule Zorb.InterpreterTest do
     routine = <<1, 0, 0, 0xB0>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.write_memory(inst, 0x0200, :binary.bin_to_list(routine))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.write_memory(inst, 0x0200, :binary.bin_to_list(routine))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
     # Step call
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
     # Routine address 0x0200. Read locals count (1 byte) -> 0x0201.
     # Read initial values for 1 local (2 bytes in V3) -> 0x0203.
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0203
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0203
 
     # Step rtrue
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
     # Returns to PC after the call instruction.
     # call 0x0100 (5 bytes) -> 0x0105
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0105
-    assert OrbWasmtime.Instance.call(inst, :read_variable, 16) == 1
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0105
+    assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 1
   end
 
   test "print_char instruction" do
@@ -324,21 +330,22 @@ defmodule Zorb.InterpreterTest do
     parent = self()
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char,
          fn char ->
            send(parent, {:print_char, char})
            0
          end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     assert_receive {:print_char, 65}
   end
@@ -374,21 +381,22 @@ defmodule Zorb.InterpreterTest do
     parent = self()
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char,
          fn char ->
            send(parent, {:print_char, char})
            0
          end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 'a'
     assert_receive {:print_char, 97}
@@ -437,28 +445,29 @@ defmodule Zorb.InterpreterTest do
     code = <<0x92, 1, 16, 0xC4>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
 
-    OrbWasmtime.Instance.write_memory(
+    Zorb.TestRuntime.write_memory(
       inst,
       0x0200,
       :binary.bin_to_list(defaults <> obj1 <> obj2 <> obj3)
     )
 
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
-    assert OrbWasmtime.Instance.call(inst, :read_variable, 16) == 2
+    assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 2
     # 0x0100 + 2 (instr) + 1 (res var) + 1 (branch) + 4 - 2 = 0x0106
-    assert OrbWasmtime.Instance.call(inst, :get_pc) == 0x0106
+    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0106
   end
 
   @tag :abbrev
@@ -512,23 +521,24 @@ defmodule Zorb.InterpreterTest do
     parent = self()
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char,
          fn char ->
            send(parent, {:print_char, char})
            0
          end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.write_memory(inst, 0x0200, :binary.bin_to_list(abbrev_string))
-    OrbWasmtime.Instance.write_memory(inst, 0x0300, :binary.bin_to_list(abbrev_table))
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.write_memory(inst, 0x0200, :binary.bin_to_list(abbrev_string))
+    Zorb.TestRuntime.write_memory(inst, 0x0300, :binary.bin_to_list(abbrev_table))
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # 'a'
     assert_receive {:print_char, 97}

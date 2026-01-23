@@ -38,6 +38,7 @@ end
 defmodule Zorb.Interpreter.ZIO do
   use Orb.Import, name: :zio
   defw(print_char(char: Orb.I32))
+  defw(read_char(), Orb.I32)
   # 1=Stack Overflow, 2=Static Memory Write, 3=Illegal Instruction
   defw(halt(reason: Orb.I32))
 end
@@ -82,7 +83,88 @@ defmodule Zorb.Interpreter do
     @object_sibling_offset 0
     @object_child_offset 0
     @object_property_table_offset 0
+
+    # Font state (1=Normal, 3=Graphics)
+
+    @current_font 1
   end
+
+  # Font 3 Mapping Data
+
+  @runes [
+    {97, 0x16AA, "ᚪ"},
+    {98, 0x16D2, "ᛒ"},
+    {99, 0x16D7, "ᛇ"},
+    {100, 0x16DE, "ᛞ"},
+    {101, 0x16E6, "ᛖ"},
+    {102, 0x16A0, "ᚠ"},
+    {103, 0x16B7, "ᚷ"},
+    {104, 0x16BB, "ᚻ"},
+    {105, 0x16C1, "ᛁ"},
+    {106, 0x16C4, "ᛄ"},
+    {107, 0x16E3, "ᛣ"},
+    {108, 0x16DA, "ᛚ"},
+    {109, 0x16D7, "ᛗ"},
+    {110, 0x16BE, "ᚾ"},
+    {111, 0x16A9, "ᚩ"},
+    {112, 0x16C8, "ᛈ"},
+    {113, 0x16B3, "ᚳ"},
+    {114, 0x16B1, "ᚱ"},
+    {115, 0x16CB, "ᛋ"},
+    {116, 0x16CF, "ᛏ"},
+    {117, 0x16A2, "ᚢ"},
+    {118, 0x16E0, "ᛠ"},
+    {119, 0x16B9, "ᚹ"},
+    {120, 0x16C9, "ᛉ"},
+    {121, 0x16A3, "ᚣ"},
+    {122, 0x16DF, "ᛟ"}
+  ]
+
+  @graphics [
+    {33, 0x2192, "→ (Right Arrow)"},
+    {34, 0x2190, "← (Left Arrow)"},
+    {35, 0x2571, "╱ (RDIAG)"},
+    {36, 0x2572, "╲ (LDIAG)"},
+    {37, 0x2588, "█ (SOLID)"},
+    {38, 0x2584, "▄ (BOT)"},
+    {39, 0x2580, "▀ (TOP)"},
+    {40, 0x258C, "▌ (LSID)"},
+    {41, 0x2590, "▐ (RSID)"},
+    {42, 0x2534, "┴ (NCON)"},
+    {43, 0x252C, "┬ (SCON)"},
+    {44, 0x251C, "├ (ECON)"},
+    {45, 0x2524, "┤ (WCON)"},
+    {46, 0x2514, "└ (BLC)"},
+    {47, 0x250C, "┌ (TLC)"},
+    {48, 0x2510, "┐ (TRC)"},
+    {49, 0x2518, "┘ (BRC)"},
+    {50, 0x256F, "╯ (SWCON)"},
+    {51, 0x2570, "╰ (NWCON)"},
+    {52, 0x256D, "╭ (NECON)"},
+    {53, 0x256E, "╮ (SECON)"},
+    {54, 0x2593, "▓ (ISOLID)"},
+    {71, 0x2510, "┐ (TRCORNER)"},
+    {72, 0x2518, "┘ (BRCORNER)"},
+    {73, 0x2514, "└ (BLCORNER)"},
+    {74, 0x250C, "┌ (TLCORNER)"},
+    {75, 0x2500, "─ (TOPEDGE)"},
+    {76, 0x2500, "─ (BOTEDGE)"},
+    {77, 0x2502, "│ (LEDGE)"},
+    {78, 0x2502, "│ (REDGE)"},
+    {88, 0x2524, "┤ (LCAP)"},
+    {89, 0x251C, "├ (RCAP)"},
+    {90, 0x2573, "╳ (XCROSS)"},
+    {91, 0x253C, "┼ (HVCROSS)"},
+    {92, 0x2191, "↑ (UARROW)"},
+    {93, 0x2193, "↓ (DARROW)"},
+    {94, 0x2195, "↕ (UDARROW)"},
+    {95, 0x25AB, "▫ (SMBOX)"},
+    {96, 0x003F, "? (QMARK)"},
+    {123, 0x21E7, "⬆ (IUARROW)"},
+    {124, 0x21E9, "⬇ (IDARROW)"},
+    {125, 0x21D5, "⇕ (IUDARROW)"},
+    {126, 0x00BF, "¿ (IQMARK)"}
+  ]
 
   Orb.Import.register(Zorb.Interpreter.ZIO)
 
@@ -98,6 +180,7 @@ defmodule Zorb.Interpreter do
     @sp = 0
     @fp = 0
     @recursion_depth = 0
+    @current_font = 1
 
     if @version <= 3 do
       @packed_address_shift = 1
@@ -330,6 +413,18 @@ defmodule Zorb.Interpreter do
     opcode = I32.band(byte, 0x1F)
     types_byte = fetch_byte()
 
+    # VAR Forms of 2OP (0xC0 - 0xDF)
+    if byte < 0xE0 do
+      execute_2op(
+        opcode,
+        fetch_operand(I32.band(I32.shr_u(types_byte, 6), 0x03)),
+        fetch_operand(I32.band(I32.shr_u(types_byte, 4), 0x03))
+      )
+
+      return()
+    end
+
+    # VAR Opcodes (0xE0 - 0xFF)
     if I32.or(opcode === 0x0C, opcode === 0x1A) do
       types_byte2 = fetch_byte()
 
@@ -361,7 +456,8 @@ defmodule Zorb.Interpreter do
     addr: T.Address,
     byte: I32,
     size: I32,
-    prop_num: I32 do
+    prop_num: I32,
+    old_child: T.Object do
     if opcode === 1, do: return(fetch_branch(op1 === op2))
     if opcode === 2, do: return(fetch_branch(I32.lt_s(op1, op2)))
     if opcode === 3, do: return(fetch_branch(I32.gt_s(op1, op2)))
@@ -395,6 +491,17 @@ defmodule Zorb.Interpreter do
     if opcode === 7, do: return(fetch_result_and_store(I32.band(op1, op2)))
     if opcode === 8, do: return(fetch_result_and_store(I32.or(op1, op2)))
     if opcode === 13, do: return(write_variable(op1, op2))
+
+    # insert_obj
+    if opcode === 14 do
+      do_remove_obj(op1)
+      old_child = get_object_child(op2)
+      set_object_child(op2, op1)
+      set_object_sibling(op1, old_child)
+      set_object_parent(op1, op2)
+      return()
+    end
+
     if opcode === 15, do: return(fetch_result_and_store(read_word(op1 + I32.shl(op2, 1))))
     if opcode === 16, do: return(fetch_result_and_store(read_byte(op1 + op2)))
 
@@ -493,6 +600,13 @@ defmodule Zorb.Interpreter do
     if opcode === 5, do: return(write_variable(op1, read_variable(op1) + 1))
     if opcode === 6, do: return(write_variable(op1, read_variable(op1) - 1))
     if opcode === 9, do: return(do_remove_obj(op1))
+
+    # print_obj
+    if opcode === 10 do
+      print_zstring(get_prop_table_address(op1) + 1)
+      return()
+    end
+
     if opcode === 11, do: return(do_return(op1))
 
     if opcode === 12 do
@@ -562,8 +676,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw execute_var(opcode: I32, op1: I32, op2: I32, op3: I32, op4: I32),
-    addr: T.Address,
-    old_child: T.Object do
+    addr: T.Address do
     if opcode === 0x00 do
       if op1 === 0, do: return(fetch_result_and_store(0))
       do_call(unpack_address(op1), fetch_byte())
@@ -585,26 +698,31 @@ defmodule Zorb.Interpreter do
       return()
     end
 
+    # read
     if opcode === 0x04 do
-      write_byte(op1 + if(@version <= 4, do: I32.const(1), else: I32.const(2)), 0)
+      read_input(op1)
       if op2 !== 0, do: do_tokenise(op1, op2, 0)
       return()
     end
 
-    if opcode === 0x05, do: return(Zorb.Interpreter.ZIO.print_char(op1))
-    # insert_obj
+    if opcode === 0x05, do: return(print_output_char(op1))
+
+    # print_num
     if opcode === 0x06 do
-      do_remove_obj(op1)
-      old_child = get_object_child(op2)
-      set_object_child(op2, op1)
-      set_object_sibling(op1, old_child)
-      set_object_parent(op1, op2)
+      print_number(op1)
       return()
     end
 
     if opcode === 0x07, do: return(fetch_result_and_store(1))
     if opcode === 0x08, do: return(push_stack(op1))
     if opcode === 0x09, do: return(write_variable(op1, pop_stack()))
+
+    # read_char
+    if opcode === 0x16 do
+      fetch_result_and_store(Zorb.Interpreter.ZIO.read_char())
+      return()
+    end
+
     if opcode === 0x19, do: return(do_call(unpack_address(op1), 0xFF))
     if opcode === 0x1B, do: return(do_tokenise(op1, op2, op3))
   end
@@ -612,8 +730,135 @@ defmodule Zorb.Interpreter do
   defw execute_0op(opcode: I32) do
     if opcode === 0, do: return(do_return(1))
     if opcode === 1, do: return(do_return(0))
-    if opcode === 2, do: return(print_zstring())
+    if opcode === 2, do: return(print_zstring(0))
     if opcode === 8, do: return(do_return(pop_stack()))
+    if opcode === 0x0E, do: return(execute_ext())
+  end
+
+  defw execute_ext(), opcode: I32, types: I32 do
+    opcode = fetch_byte()
+    types = fetch_byte()
+
+    # set_font
+    if opcode === 0x04 do
+      fetch_result_and_store(set_font(fetch_operand(I32.band(I32.shr_u(types, 6), 0x03))))
+      return()
+    end
+
+    # print_unicode
+    if opcode === 0x0B do
+      Zorb.Interpreter.ZIO.print_char(fetch_operand(I32.band(I32.shr_u(types, 6), 0x03)))
+      return()
+    end
+
+    # check_unicode
+    if opcode === 0x0C do
+      # Consume the char argument (we ignore it and return 3)
+      fetch_operand(I32.band(I32.shr_u(types, 6), 0x03))
+      fetch_result_and_store(3)
+      return()
+    end
+  end
+
+  defw set_font(font: I32), I32, old: I32 do
+    if I32.eq(font, 1) do
+      old = @current_font
+      @current_font = 1
+      return(old)
+    end
+
+    if I32.eq(font, 3) do
+      old = @current_font
+      @current_font = 3
+      return(old)
+    end
+
+    0
+  end
+
+  mapping = Macro.escape(@runes ++ @graphics)
+
+  defw map_font3(char: I32), I32 do
+    Enum.map(unquote(mapping), fn {k, v, _label} ->
+      if char === k, do: return(v)
+    end)
+
+    char
+  end
+
+  defw print_output_char(char: I32) do
+    if @current_font === 3 do
+      char = map_font3(char)
+    end
+
+    Zorb.Interpreter.ZIO.print_char(char)
+  end
+
+  defw read_input(text_buf: T.Address), max_len: I32, i: I32, char: I32 do
+    max_len = read_byte(text_buf)
+
+    if @version <= 4 do
+      i = 1
+    else
+      i = 2
+    end
+
+    loop ReadLoop do
+      char = Zorb.Interpreter.ZIO.read_char()
+
+      # 13 is Newline
+      if char === 13 do
+        # Terminate with 0
+        write_byte(text_buf + i, 0)
+        return()
+      end
+
+      # Only write if we have space
+      if i < max_len do
+        # ZSCII: Lowercase conversion could happen here but usually handled by dictionary lookups
+        if char >= 65 do
+          if char <= 90 do
+            char = char + 32
+          end
+        end
+
+        write_byte(text_buf + i, char)
+        i = i + 1
+      end
+
+      ReadLoop.continue()
+    end
+  end
+
+  defw print_number(value: I32), div: I32, digit: I32 do
+    if value === 0 do
+      # '0'
+      print_output_char(48)
+      return()
+    end
+
+    if value < 0 do
+      # '-'
+      print_output_char(45)
+      value = 0 - value
+    end
+
+    div = 10000
+    if value < 10000, do: div = 1000
+    if value < 1000, do: div = 100
+    if value < 100, do: div = 10
+    if value < 10, do: div = 1
+
+    loop DigitLoop do
+      if div > 0 do
+        digit = value / div
+        # '0' + digit
+        print_output_char(48 + digit)
+        value = I32.rem_s(value, div)
+        div = div / 10
+        DigitLoop.continue()
+      end
+    end
   end
 
   defwp char_to_zchar(char: I32), T.ZChar do
@@ -870,13 +1115,37 @@ defmodule Zorb.Interpreter do
     if opcode === 0x1A, do: return(do_call(unpack_address(op1), 0xFF))
   end
 
-  defw print_zstring(),
+  defw print_zstring(word_addr: T.Address),
     word: I32,
     done: I32,
     z1: T.ZChar,
     z2: T.ZChar,
     z3: T.ZChar,
     saved_shift: I32 do
+    if word_addr !== 0 do
+      # If address provided, set PC temporarily (hacky but standard way to reuse print_zstring)
+      # But here we are using global @pc.
+      # Standard approach: print_zstring usually reads from @pc.
+      # To read from arbitrary address, we need to pass address or have a separate loop.
+      # Re-implementing simplified loop for arbitrary address.
+
+      loop AddrLoop do
+        word = read_word(word_addr)
+        word_addr = word_addr + 2
+
+        done = I32.band(word, 0x8000)
+        z1 = I32.band(I32.shr_u(word, 10), 0x1F)
+        z2 = I32.band(I32.shr_u(word, 5), 0x1F)
+        z3 = I32.band(word, 0x1F)
+        decode_zchar(z1)
+        decode_zchar(z2)
+        decode_zchar(z3)
+        AddrLoop.continue(if: done === 0)
+      end
+
+      return()
+    end
+
     @recursion_depth = @recursion_depth + 1
     if @recursion_depth > 2, do: return()
     saved_shift = @alphabet_shift
@@ -908,7 +1177,7 @@ defmodule Zorb.Interpreter do
       old_pc = @pc
       @pc = abbrev_addr
       @abbrev_mode = 0
-      print_zstring()
+      print_zstring(0)
       @pc = old_pc
       return()
     end
@@ -921,7 +1190,7 @@ defmodule Zorb.Interpreter do
     end
 
     if zchar === 0 do
-      Zorb.Interpreter.ZIO.print_char(32)
+      print_output_char(32)
       @alphabet_shift = 0
       return()
     end
@@ -930,20 +1199,20 @@ defmodule Zorb.Interpreter do
     if zchar === 5, do: return(@alphabet_shift = 2)
 
     if @alphabet_shift === 0 do
-      Zorb.Interpreter.ZIO.print_char(zchar + 91)
+      print_output_char(zchar + 91)
       return()
     end
 
     if @alphabet_shift === 1 do
-      Zorb.Interpreter.ZIO.print_char(zchar + 59)
+      print_output_char(zchar + 59)
       @alphabet_shift = 0
       return()
     end
 
     if @alphabet_shift === 2 do
       if zchar === 6,
-        do: Zorb.Interpreter.ZIO.print_char(10),
-        else: Zorb.Interpreter.ZIO.print_char(63)
+        do: print_output_char(10),
+        else: print_output_char(63)
 
       @alphabet_shift = 0
       return()

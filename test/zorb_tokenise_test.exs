@@ -109,32 +109,33 @@ defmodule Zorb.InterpreterTest.Tokenise do
     parse_buf = <<4, 0, 0, 0, 0, 0>>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
     # Load header
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
     # Load code at PC 0x0100
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
-    OrbWasmtime.Instance.write_memory(inst, 0x0300, :binary.bin_to_list(dict))
-    OrbWasmtime.Instance.write_memory(inst, 0x0400, :binary.bin_to_list(text_buf))
-    OrbWasmtime.Instance.write_memory(inst, 0x0500, :binary.bin_to_list(parse_buf))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.write_memory(inst, 0x0300, :binary.bin_to_list(dict))
+    Zorb.TestRuntime.write_memory(inst, 0x0400, :binary.bin_to_list(text_buf))
+    Zorb.TestRuntime.write_memory(inst, 0x0500, :binary.bin_to_list(parse_buf))
 
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    OrbWasmtime.Instance.call(inst, :step)
+    Zorb.TestRuntime.call(inst, :step)
 
     # Check parse buffer
     # Byte 1 should be 1
-    assert OrbWasmtime.Instance.read_memory(inst, 0x0501, 1) == <<1>>
+    assert Zorb.TestRuntime.read_memory(inst, 0x0501, 1) == <<1>>
     # Word at 0x0502 should be 0x0305 (dictionary entry address)
-    assert OrbWasmtime.Instance.read_memory(inst, 0x0502, 2) == <<0x03, 0x05>>
+    assert Zorb.TestRuntime.read_memory(inst, 0x0502, 2) == <<0x03, 0x05>>
     # Byte at 0x0504 should be 3 (len)
-    assert OrbWasmtime.Instance.read_memory(inst, 0x0504, 1) == <<3>>
+    assert Zorb.TestRuntime.read_memory(inst, 0x0504, 1) == <<3>>
     # Byte at 0x0505 should be 1 (start index in V1-4 is characters start at 1)
-    assert OrbWasmtime.Instance.read_memory(inst, 0x0505, 1) == <<1>>
+    assert Zorb.TestRuntime.read_memory(inst, 0x0505, 1) == <<1>>
   end
 end

@@ -89,8 +89,8 @@ defmodule Zorb.InterpreterTest.ObjectMovement do
 
     code = <<
       # insert_obj 2 1
-      # VAR:6 (0xE6), Types: Small, Small (0x5F)
-      0xE6,
+      # VAR:14 (0xCE), Types: Small, Small (0x5F)
+      0xCE,
       0x5F,
       2,
       1,
@@ -99,43 +99,44 @@ defmodule Zorb.InterpreterTest.ObjectMovement do
       0x99,
       2,
       # insert_obj 3 1
-      0xE6,
+      0xCE,
       0x5F,
       3,
       1
     >>
 
     inst =
-      OrbWasmtime.Instance.run(Interpreter, [
+      Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
+        {:zio, :read_char, fn -> 0 end},
         {:zio, :halt, fn _ -> 0 end}
       ])
 
     # Load header
-    OrbWasmtime.Instance.write_memory(inst, 0, :binary.bin_to_list(header))
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
     # Load object table at 0x0040
-    OrbWasmtime.Instance.write_memory(
+    Zorb.TestRuntime.write_memory(
       inst,
       0x0040,
       :binary.bin_to_list(obj_table <> obj1 <> obj2 <> obj3)
     )
 
     # Load code at PC 0x0100
-    OrbWasmtime.Instance.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
 
-    OrbWasmtime.Instance.call(inst, :init, 0x8000)
-    OrbWasmtime.Instance.call(inst, :set_pc, 0x0100)
+    Zorb.TestRuntime.call(inst, :init, 0x8000)
+    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
     # Step 1: insert_obj 2 1 (Object 2 is already child of 1, should be no change)
-    OrbWasmtime.Instance.call(inst, :step)
-    assert OrbWasmtime.Instance.call(inst, :get_object_child, 1) == 2
+    Zorb.TestRuntime.call(inst, :step)
+    assert Zorb.TestRuntime.call(inst, :get_object_child, 1) == 2
 
     # Step 2: remove_obj 2 (Object 1 should have no child)
-    OrbWasmtime.Instance.call(inst, :step)
-    assert OrbWasmtime.Instance.call(inst, :get_object_child, 1) == 0
+    Zorb.TestRuntime.call(inst, :step)
+    assert Zorb.TestRuntime.call(inst, :get_object_child, 1) == 0
 
     # Step 3: insert_obj 3 1 (Object 1 should have child 3)
-    OrbWasmtime.Instance.call(inst, :step)
-    assert OrbWasmtime.Instance.call(inst, :get_object_child, 1) == 3
+    Zorb.TestRuntime.call(inst, :step)
+    assert Zorb.TestRuntime.call(inst, :get_object_child, 1) == 3
   end
 end
