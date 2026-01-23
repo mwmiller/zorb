@@ -13,10 +13,10 @@ Zorb is a high-performance, idiomatic WebAssembly Z-machine interpreter built us
 - **Robustness Layer**: Added safeguards to prevent illegal memory writes and stack overflows.
 - **Performance Refactoring**: Cached object table start, entry sizes, and parent/sibling/child offsets in globals to minimize runtime branching.
 - **Binary Search**: Replaced linear dictionary lookup with binary search, significantly improving `tokenise` performance.
+- **Resolved Test Regressions**: Fixed `tokenise` and `movement` tests by bypassing memory guards for internal operations and correcting test data.
 
 ## Known Issues
 
-- **Test Regressions**: The introduction of memory guards caused regressions in `test/zorb_tokenise_test.exs` and `test/zorb_movement_test.exs`. While headers were updated to allow writes, some address calculations in assertions need further refinement.
 - **zio.halt Interface**: All tests now include a mock for `halt` that returns `0`.
 
 ## Next Steps
