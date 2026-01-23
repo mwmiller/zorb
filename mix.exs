@@ -22,7 +22,7 @@ defmodule Zorb.MixProject do
   defp deps do
     [
       {:orb, "~> 0.2.2"},
-      {:orb_wasmtime, "~> 0.1.17", only: :test}
+      {:wasmex, "~> 0.14.0"}
     ]
   end
 end
