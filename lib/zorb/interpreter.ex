@@ -126,7 +126,7 @@ defmodule Zorb.Interpreter do
     @fp = 0
   end
 
-  # Recommendation #5: Optimized static loading via host memory.copy
+  # Load the story data into memory.
   defw load_story(story_ptr: T.Address, len: I32), i: I32 do
     i = 0
 
@@ -143,7 +143,7 @@ defmodule Zorb.Interpreter do
     I32.shl(address, @packed_address_shift)
   end
 
-  # Recommendation #4: Protected Memory Access
+  # Guard against writes to static memory.
   defw write_word(address: T.Address, value: I32) do
     if I32.ge_u(address, @static_memory_base), do: return(Zorb.Interpreter.ZIO.halt(2))
     Memory.store!(I32.U8, address, I32.shr_u(value, 8))
@@ -175,7 +175,7 @@ defmodule Zorb.Interpreter do
     write_word(@globals_base + I32.shl(var - 16, 1), value)
   end
 
-  # Recommendation #4: Stack Guards
+  # Guard against stack overflow.
   defw push_stack(value: I32) do
     if I32.ge_u(@sp, @stack_max), do: return(Zorb.Interpreter.ZIO.halt(1))
     write_stack(@sp, value)
