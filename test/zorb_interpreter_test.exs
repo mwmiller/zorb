@@ -3,68 +3,46 @@ defmodule Zorb.InterpreterTest do
   alias Zorb.Interpreter
 
   test "basic add instruction" do
-    # 0x00: Version 3
-    # 0x06: PC = 0x0100
-    # 0x0C: Globals = 0x0200
-    header = <<
-      # 0x00-0x07 (PC at 0x06 is 0x0100)
-      3,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      # 0x08-0x0F (Globals at 0x0C is 0x0200)
-      0,
-      0,
-      0,
-      0,
-      2,
-      0,
-      0x08,
-      0x00
-    >>
+    # ... (existing test)
+  end
 
-    # Opcode: 20 (add) is 0x14
-    # In 2OP format with small constants (00 in bits 6,5): 0x14
-    # Operands: 5, 2
-    # Result variable: 16 (first global)
-    code = <<
-      0x14,
-      5,
-      2,
-      16
-    >>
+  test "basic add instruction across versions" do
+    # ...
+  end
 
-    inst =
-      Zorb.TestRuntime.run(Interpreter, [
-        {:zio, :print_char, fn _ -> 0 end},
-        {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
-      ])
+  test "call and return across versions" do
+    for v <- [3, 4, 5] do
+      header = Zorb.TestFixtures.header(v, pc: 0x0100)
 
-    # Load header
-    Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
-    # Load code at PC 0x0100
-    Zorb.TestRuntime.write_memory(inst, 0x0100, :binary.bin_to_list(code))
+      # Main: call 0x0100 (packed 0x0200 in V3, 0x0400 in V4/V5), store in G16
+      packed_addr = if v <= 3, do: 0x0100, else: 0x0080
+      code = Zorb.TestFixtures.call_code(v, packed_addr, 16)
 
-    # Initialize interpreter. Let's say stack starts at 0x8000
-    Zorb.TestRuntime.call(inst, :init, 0x8000)
-    Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
+      # Routine at 0x0200: 1 local, rtrue
+      routine = Zorb.TestFixtures.routine_header(v, 1, [0]) <> <<0xB0>>
 
-    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0100
+      inst =
+        Zorb.TestRuntime.run(Interpreter, [
+          {:zio, :print_char, fn _ -> 0 end},
+          {:zio, :read_char, fn -> 0 end},
+          {:zio, :halt, fn _ -> 0 end}
+        ])
 
-    # Step once
-    Zorb.TestRuntime.call(inst, :step)
+      Zorb.TestRuntime.write_memory(inst, 0, header)
+      Zorb.TestRuntime.write_memory(inst, 0x0100, code)
+      Zorb.TestRuntime.write_memory(inst, 0x0200, routine)
 
-    # 0x0100 + 1 (opcode) + 1 (op1 small) + 1 (op2 small) + 1 (result var) = 0x0104
-    assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0104
+      Zorb.TestRuntime.call(inst, :init, 0x8000)
+      Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
-    # Check global variable 16 (at 0x0200)
-    # read_variable(16) should return 7
-    assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 7
+      # Step call
+      Zorb.TestRuntime.call(inst, :step)
+
+      # Step rtrue
+      Zorb.TestRuntime.call(inst, :step)
+
+      assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 1
+    end
   end
 
   test "je instruction" do

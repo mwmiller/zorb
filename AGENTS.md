@@ -5,6 +5,7 @@ Zorb is a WebAssembly Z-machine interpreter built using Elixir and the Orb DSL.
 
 ### Implemented Features
 - **Core Architecture**: Stack management (FP/SP), Global variables, Memory paging (13 pages, 832KB).
+- **Runtime**: Uses `wasmex` for high-performance WebAssembly execution.
 - **Robustness**: 
   - **Memory Protection**: Write-guards for static memory area (code/dictionary).
   - **Stack Protection**: Bounds-checking on `@sp` to prevent overflows.
@@ -18,26 +19,32 @@ Zorb is a WebAssembly Z-machine interpreter built using Elixir and the Orb DSL.
 - **Z-Strings**: 
   - 5-bit character decoding with alphabet shifting (A0, A1, A2).
   - Standard abbreviation expansion with recursion protection (depth limit 2).
+- **I/O & Text**:
+  - Opcodes: `read`, `print_num`, `read_char`, `print_char`, `print_obj`, `print_zstring`, `new_line`.
+  - **Unicode**: Internal `print_unicode` and `check_unicode` (EXT:11, EXT:12) support.
+  - **Font 3 (Graphics)**: Internal mapping for Runes and character graphics via `set_font` (EXT:4).
 - **Object Table**:
   - V3 layout support (1-byte parent/sibling/child).
   - V4+ layout support (2-byte parent/sibling/child, multi-byte properties).
   - Navigation: `get_parent`, `get_child`, `get_sibling`.
   - Manipulation: `insert_obj`, `remove_obj`.
-- **Properties**:
-  - `get_prop`, `put_prop`, `get_next_prop`, `get_prop_len`.
-  - Version-specific header encoding (V1-3 vs V4+).
-- **Attributes**: `set_attr`, `clear_attr`, `test_attr`.
+- **Properties & Attributes**:
+  - Properties: `get_prop`, `put_prop`, `get_next_prop`, `get_prop_len`, `get_prop_addr`.
+  - Attributes: `set_attr`, `clear_attr`, `test_attr`.
+  - Other: `test` (2OP:7 bitmap comparison).
 - **Tokenization**:
   - Dictionary-based lookup with Z-word encoding.
   - `tokenise` opcode supporting V1-4 and V5+ buffer formats.
   - Separator handling from dictionary.
+- **Execution**:
+  - `Zorb.Runner` for loading and executing `.z3` files with terminal I/O.
 
 ### Remaining Tasks
-- [ ] **Input/Output**: Connect `read` and `print` opcodes to real host interfaces.
-- [ ] **Extended Character Sets**: Full A2 set support and Unicode conversion.
 - [ ] **Advanced Opcodes**: `random`, `scan_table`, `verify`, `save`/`restore`.
+- [ ] **Missing 2OP Opcodes**: `dec_chk`, `inc_chk`, `jin`.
 - [ ] **V5+ Features**: Expanded alphabet tables and header extension table.
-- [ ] **File Loading**: Utility to load actual .z3/.z5 story files into memory.
+- [ ] **Screen Model**: Implement `split_window`, `set_window`, and cursor management for V3+ status lines.
+- [ ] **Timed Input**: Support for timeouts in `read` and `read_char`.
 
 ## Development Guidelines
 - **No `if` Expressions**: Use `case` or pattern matching with guards in Elixir code.

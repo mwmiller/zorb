@@ -29,25 +29,25 @@ defmodule Zorb.InterpreterTest.Attributes do
 
     code = <<
       # test_attr 1, 0 -> branch if true (next)
-      0x04,
+      0x0A,
       1,
       0,
       0xC2,
       # set_attr 1, 1 (0x80 | 0x40 = 0xC0)
-      0x05,
+      0x0B,
       1,
       1,
       # test_attr 1, 1 -> branch if true (next)
-      0x04,
+      0x0A,
       1,
       1,
       0xC2,
       # clear_attr 1, 0 (0xC0 & ~0x80 = 0x40)
-      0x06,
+      0x0C,
       1,
       0,
       # test_attr 1, 0 -> branch if false (next)
-      0x04,
+      0x0A,
       1,
       0,
       0x42
@@ -104,12 +104,12 @@ defmodule Zorb.InterpreterTest.Attributes do
 
     code = <<
       # test 0x0F, 0x03 -> branch if true (all bits in 0x03 are in 0x0F)
-      0x09,
+      0x07,
       0x0F,
       0x03,
       0xC2,
       # test 0x0F, 0x10 -> branch if false (0x10 is NOT in 0x0F)
-      0x09,
+      0x07,
       0x0F,
       0x10,
       0x42,
