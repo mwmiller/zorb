@@ -59,6 +59,7 @@ Zorb is a high-performance, idiomatic WebAssembly Z-machine interpreter built us
 We are moving from a generic interpreter to a **specialized compiler model**.
 - **Per-Version**: Generate WASM with version-specific constants baked in (e.g., V3 vs V4 offsets) to eliminate runtime branching in hot paths.
 - **Per-Story**: Eventually embed the entire `.z3`/`.z5` file into the WASM `data` section and hardcode dictionary/object table addresses as `I32` literals.
+- **Compilation Caching**: Store generated WASM binaries in a content-addressable cache (keyed by `SHA-256(story_bytes) + length`). This avoids redundant Bespoke Generation cycles for popular or frequently accessed stories.
 
 ### Serialization & Save/Restore
 - **Mechanism**: Use a "Host Import/Pull" model. WASM signals a save, writes its registers to a memory buffer, and the Elixir host reads the dynamic memory region.
@@ -78,6 +79,29 @@ We are moving from a generic interpreter to a **specialized compiler model**.
 - **Hyper-Opcodes**: Reserve `EXT:255` (0xFF) as a custom Zorb hypercall for explicit host interaction.
 
 - **State Watching**: Implement "Observer" logic in the host to trigger Phoenix events based on changes in Z-Machine globals (e.g., Score updates or Location changes).
+
+### Meta-Layer Slash Commands
+For the initial Zorbit release, the host should intercept the following "slash commands" before they reach the Z-Machine:
+- `/chat <message>`: Send a standard message to all players "zorbing" the current story.
+- `/who`: List active players currently connected to the game instance.
+- `/nick <name>`: Set a custom display name for the narrative decoration engine (default to a random "Story-Appropriate" name if not set).
+- `/me <action>`: Perform a classic IRC-style emote (e.g., "/me ponders the mailbox" becomes "Matt ponders the mailbox").
+- `/help`: Display Zorbit-specific meta-commands (distinct from the in-game "help" command).
+
+### Content Moderation & Safety (The Kessler Prevention)
+To maintain a safe multiplayer environment and avoid **Social Kessler Syndrome**, the Zorbit host must implement:
+- **The Kessler Risk**: Without rigorous moderation, the "Orbit" becomes clogged with "debris" (toxicity/spam). One bad interaction (collision) generates more negativity (fragments), leading to a cascade that makes the game's social atmosphere uninhabitable for everyone.
+- **Pre-flight Moderation**: All `/chat`, `/nick`, and `/me` content must be "de-fanged" (HTML escaping, script removal) and checked against a moderation filter before being broadcast.
+- **Low-Cost Filtration Strategies**:
+    - **Compiled Regex Triage**: Use a single compiled regex for O(N) pattern matching against banned word lists.
+    - **Entropy/Density Checks**: Detect and block "garbage" strings by measuring non-alphanumeric ratios and vowel density.
+    - **Similarity Matching**: Use Jaro-Winkler or Levenshtein distance to catch "leetspeak" or intentional misspellings of banned terms.
+    - **Velocity Control**: Implement token-bucket rate limiting to prevent flooding.
+    - **Echo Suppression**: Block repetitive or near-identical messages from the same source.
+- **Auto-Denial**: If a message is flagged as inappropriate, it is blocked at the source.
+ The offending user should receive a private system notification explaining the rejection.
+- **Privilege Management**: Automated or moderator-led revocation of chat privileges for repeat offenders.
+- **Shadow-Banning (Optional)**: A "Tumble-only" mode where an offender's messages appear to send but are never broadcast to other users in the orbit.
 
 ### Narrative Decoration Engine
 - **Immersive Context**: Instead of generic chat overlays, the Elixir host "skins" meta-events to match the specific story's world (e.g., "The ship's computer mutters..." for HHGTTG).
