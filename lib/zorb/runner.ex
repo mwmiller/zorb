@@ -165,6 +165,11 @@ defmodule Zorb.Runner do
     :error
   end
 
+  defp handle_halt({4, pc, _}) do
+    IO.puts("Halt: Static memory write at PC #{pc}")
+    :error
+  end
+
   defp handle_halt({code, pc, extra}) do
     IO.puts("Halt: Unknown code #{code} at PC #{pc} (extra: #{extra})")
     :error
