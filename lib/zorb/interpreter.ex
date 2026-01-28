@@ -1747,7 +1747,6 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opcode, I32.const(0x09)) do
-      # pull (VAR:9)
       val = pop_stack()
 
       if I32.ne(op1, I32.const(0)) do
@@ -3044,12 +3043,7 @@ defmodule Zorb.Interpreter do
       if I32.lt_u(i, locals_count) do
         val = I32.const(0)
 
-        # According to Spec 4.4.2, arguments are contiguous.
-        # But we must check the mask to see if the i-th local was provided as an argument.
-        # Wait, if arguments are contiguous, then if arg_mask has n bits set, it's bits 0..n-1.
-        # So we just need to know the total count.
-
-        # Let's recalculate the count once.
+        # Recalculate argument count once.
         if I32.eq(i, I32.const(0)) do
           arg_count = count_args_from_mask(arg_mask)
         else

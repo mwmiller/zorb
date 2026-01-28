@@ -3,8 +3,8 @@
 ## Priorities
 1. **Priority 0: Pass `CZECH` integration test.**
    - The prover `czech.z5` is the source of truth for V5 compliance.
-   - Current state: "Indirect Opcodes" mostly passing.
-   - Investigation area: `check_arg_count` (VAR:31) bitmask mismatch and 1-off error in `dec_chk` (2OP:4) with SP.
+   - Current state: "Indirect Opcodes" partially passing.
+   - Investigation area: `pull` (VAR:9) destination indirection vs stack top consumption.
 
 2. **Priority 1: Pass all other integration tests.**
    - Once `CZECH` is green, re-enable and pass `strictz.z5` and `unicode.z5`.

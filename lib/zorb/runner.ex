@@ -71,8 +71,7 @@ defmodule Zorb.Runner do
         "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
         "log_step" =>
           {:fn, [:i32, :i32], [],
-           fn _ctx, code, val ->
-             IO.puts("DEBUG: code=#{code} val=#{val}")
+           fn _ctx, _code, _val ->
              nil
            end}
       }
