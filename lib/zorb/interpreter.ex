@@ -513,7 +513,7 @@ defmodule Zorb.Interpreter do
     I32.const(0)
   end
 
-  defwp fetch_var_ref_operand(type: I32), I32 do
+  defwp fetch_var_ref_operand(type: I32), I32, var: I32 do
     if I32.eq(type, I32.const(0)) do
       return(fetch_word())
     end
@@ -523,7 +523,13 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(type, I32.const(2)) do
-      return(read_variable(fetch_byte()))
+      var = fetch_byte()
+
+      if I32.eq(var, I32.const(0)) do
+        return(peek_stack())
+      end
+
+      return(read_variable(var))
     end
 
     I32.const(0)
@@ -1910,7 +1916,7 @@ defmodule Zorb.Interpreter do
     if I32.eq(opcode, I32.const(0x1F)) do
       # check_arg_count (V5+)
       # word 2 of frame: [arg_mask (8 bits) | store_var (8 bits)]
-      val = I32.shr_u(read_stack(I32.add(@fp, I32.const(2))), I32.const(8))
+      val = I32.shr_u(read_call_stack(I32.add(@fp, I32.const(2))), I32.const(8))
 
       if I32.eq(op1, I32.const(0)) do
         fetch_branch(I32.const(1))
