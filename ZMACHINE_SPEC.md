@@ -373,7 +373,7 @@ Refer to [14. Complete table of opcodes](https://zspec.jaredreisinger.com/14-opc
 
 | 141 | 0D | | print_paddr packed-address-of-string | Print string at packed address |
 
-| 142 | 0E | | load (variable) -> (result) | Load variable value (Variable 0 peeks stack) |
+| 142 | 0E | | load (variable) -> (result) | Load variable value (Variable 0 pops stack) |
 
 | 143 | 0F | 1/4 | not value -> (result) | Bitwise NOT (V1-4), Call (V5 call_1n) |
 
@@ -441,7 +441,7 @@ Refer to [14. Complete table of opcodes](https://zspec.jaredreisinger.com/14-opc
 
 | 232 | 08 | | push value | Push to stack |
 
-| 233 | 09 | 1 | pull (variable) | Pull from stack (Variable 0 discards) |
+| 233 | 09 | 1 | pull (variable) | Pull from stack (V6: pull stack -> result) |
 
 | 234 | 0A | 3 | split_window lines | Split screen |
 
