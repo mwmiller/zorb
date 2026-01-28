@@ -1,41 +1,62 @@
 ExUnit.start()
 
 defmodule Zorb.TestRuntime do
+  @moduledoc false
   def run(module, imports_list) do
-    imports =
-      Enum.reduce(imports_list, %{}, fn {namespace, name, func}, acc ->
-        ns_str = Atom.to_string(namespace)
-        name_str = Atom.to_string(name)
-
-        {params, results} = get_signature(namespace, name)
-
-        impl_wrapper = fn _ctx, args ->
-          # IO.inspect({name, args}, label: "Wasmex Callback")
-          args_list =
-            case args do
-              l when is_list(l) -> l
-              val -> [val]
-            end
-
-          res = apply(func, args_list)
-
-          case results do
-            [] -> nil
-            _ -> res
-          end
-        end
-
-        put_in(acc, [Access.key(ns_str, %{}), name_str], {:fn, params, results, impl_wrapper})
-      end)
+    imports = Enum.reduce(imports_list, %{}, &add_import/2)
 
     wat = Orb.to_wat(module)
     {:ok, instance} = Wasmex.start_link(%{bytes: wat, imports: imports})
     instance
   end
 
+  defp add_import({namespace, name, func}, acc) do
+    ns_str = Atom.to_string(namespace)
+    name_str = Atom.to_string(name)
+
+    {params, results} = get_signature(namespace, name)
+
+    impl_wrapper = build_impl_wrapper(params, results, func)
+
+    put_in(acc, [Access.key(ns_str, %{}), name_str], {:fn, params, results, impl_wrapper})
+  end
+
+  defp build_impl_wrapper([], _, func), do: fn _ctx -> func.() end
+
+  defp build_impl_wrapper([_], results, func) do
+    fn _ctx, arg1 ->
+      res = func.(arg1)
+      if results == [], do: nil, else: res
+    end
+  end
+
+  defp build_impl_wrapper([_, _], results, func) do
+    fn _ctx, arg1, arg2 ->
+      res = func.(arg1, arg2)
+      if results == [], do: nil, else: res
+    end
+  end
+
+  defp build_impl_wrapper([_, _, _], results, func) do
+    fn _ctx, arg1, arg2, arg3 ->
+      res = func.(arg1, arg2, arg3)
+      if results == [], do: nil, else: res
+    end
+  end
+
+  defp build_impl_wrapper([_, _, _, _], results, func) do
+    fn _ctx, arg1, arg2, arg3, arg4 ->
+      res = func.(arg1, arg2, arg3, arg4)
+      if results == [], do: nil, else: res
+    end
+  end
+
   defp get_signature(:zio, :print_char), do: {[:i32], []}
   defp get_signature(:zio, :read_char), do: {[], [:i32]}
-  defp get_signature(:zio, :halt), do: {[:i32], []}
+  defp get_signature(:zio, :get_random_seed), do: {[], [:i32]}
+  defp get_signature(:zio, :get_capabilities), do: {[], [:i32]}
+  defp get_signature(:zio, :halt), do: {[:i32, :i32, :i32], []}
+  defp get_signature(:zio, :log_step), do: {[:i32, :i32], []}
 
   def write_memory(instance, offset, data) do
     {:ok, memory} = Wasmex.memory(instance)

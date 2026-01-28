@@ -8,7 +8,20 @@ defmodule Zorb.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [precommit: :test]
+    ]
+  end
+
+  defp aliases do
+    [
+      precommit: ["format --check-formatted", "credo --strict", "test"]
     ]
   end
 
@@ -27,7 +40,8 @@ defmodule Zorb.MixProject do
   defp deps do
     [
       {:orb, "~> 0.2.2"},
-      {:wasmex, "~> 0.14.0"}
+      {:wasmex, "~> 0.14.0"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 end
