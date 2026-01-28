@@ -513,7 +513,7 @@ defmodule Zorb.Interpreter do
     I32.const(0)
   end
 
-  defwp fetch_var_ref_operand(type: I32), I32, var: I32 do
+  defwp fetch_var_ref_operand(type: I32), I32 do
     if I32.eq(type, I32.const(0)) do
       return(fetch_word())
     end
@@ -523,13 +523,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(type, I32.const(2)) do
-      var = fetch_byte()
-
-      if I32.eq(var, I32.const(0)) do
-        return(peek_stack())
-      end
-
-      return(read_variable(var))
+      return(read_variable(fetch_byte()))
     end
 
     I32.const(0)
