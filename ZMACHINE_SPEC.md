@@ -184,7 +184,7 @@ Refer to [14. Complete table of opcodes](https://zspec.jaredreisinger.com/14-opc
 | 139 | 0B | | ret value | Return from routine |
 | 140 | 0C | | jump ?(label) | Unconditional jump |
 | 141 | 0D | | print_paddr packed-address-of-string | Print string at packed address |
-| 142 | 0E | | load (variable) -> (result) | Load variable value |
+| 142 | 0E | | load (variable) -> (result) | Load variable value (Variable 0 peeks stack) |
 | 143 | 0F | 1/4 | not value -> (result) | Bitwise NOT (V1-4), Call (V5 call_1n) |
 
 ### 0OP (Zero-operand)
@@ -218,7 +218,7 @@ Refer to [14. Complete table of opcodes](https://zspec.jaredreisinger.com/14-opc
 | 230 | 06 | | print_num value | Print number |
 | 231 | 07 | | random range -> (result) | Generate random number |
 | 232 | 08 | | push value | Push to stack |
-| 233 | 09 | 1 | pull (variable) | Pull from stack (V6: pull stack -> result) |
+| 233 | 09 | 1 | pull (variable) | Pull from stack (Variable 0 discards) |
 | 234 | 0A | 3 | split_window lines | Split screen |
 | 235 | 0B | 3 | set_window window | Set current window |
 | 236 | 0C | 4 | call_vs2 routine ... -> (result) | Call routine (up to 7 args) |

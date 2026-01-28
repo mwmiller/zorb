@@ -1,53 +1,22 @@
-# Zorb Agent Handbook
+# Agent Guidelines - Zorb Project
 
-## Project Status
-Zorb is a WebAssembly Z-machine interpreter built using Elixir and the Orb DSL.
+## Priorities
+1. **Priority 0: Pass `CZECH` integration test.**
+   - The prover `czech.z5` is the source of truth for V5 compliance.
+   - Current state: 8 failures identified. Systematic resolution in progress.
+   - Investigation area: `dec_chk` (2OP:4) with SP (variable 0), potential memory corruption or stack sync issues.
 
-### Implemented Features
-- **Core Architecture**: Stack management (FP/SP), Global variables, Memory paging (13 pages, 832KB).
-- **Runtime**: Uses `wasmex` for high-performance WebAssembly execution.
-- **Robustness**: 
-  - **Memory Protection**: Write-guards for static memory area (code/dictionary).
-  - **Stack Protection**: Bounds-checking on `@sp` to prevent overflows.
-  - **Halt Interface**: `zio.halt` host import for signaling fatal errors.
-- **Performance**:
-  - **Global Caching**: Version-specific offsets and packed shifts cached in globals.
-  - **Binary Search**: $O(\log N)$ dictionary lookup.
-  - **Bulk Loading**: Fast `load_story` utility for initializing memory.
-- **Instruction Decoding**: 2OP, 1OP, 0OP, and VAR (including 8-operand V4+ calls).
-- **Routine Management**: Standard Z-machine calling convention with local variables and return value storage.
-- **Z-Strings**: 
-  - 5-bit character decoding with alphabet shifting (A0, A1, A2).
-  - Standard abbreviation expansion with recursion protection (depth limit 2).
-- **I/O & Text**:
-  - Opcodes: `read`, `print_num`, `read_char`, `print_char`, `print_obj`, `print_zstring`, `new_line`.
-  - **Unicode**: Internal `print_unicode` and `check_unicode` (EXT:11, EXT:12) support.
-  - **Font 3 (Graphics)**: Internal mapping for Runes and character graphics via `set_font` (EXT:4).
-- **Object Table**:
-  - V3 layout support (1-byte parent/sibling/child).
-  - V4+ layout support (2-byte parent/sibling/child, multi-byte properties).
-  - Navigation: `get_parent`, `get_child`, `get_sibling`.
-  - Manipulation: `insert_obj`, `remove_obj`.
-- **Properties & Attributes**:
-  - Properties: `get_prop`, `put_prop`, `get_next_prop`, `get_prop_len`, `get_prop_addr`.
-  - Attributes: `set_attr`, `clear_attr`, `test_attr`.
-  - Other: `test` (2OP:7 bitmap comparison).
-- **Tokenization**:
-  - Dictionary-based lookup with Z-word encoding.
-  - `tokenise` opcode supporting V1-4 and V5+ buffer formats.
-  - Separator handling from dictionary.
-- **Execution**:
-  - `Zorb.Runner` for loading and executing `.z3` files with terminal I/O.
+2. **Priority 1: Pass all other integration tests.**
+   - Once `CZECH` is green, re-enable and pass `strictz.z5` and `unicode.z5`.
 
-### Remaining Tasks
-- [ ] **Advanced Opcodes**: `random`, `scan_table`, `verify`, `save`/`restore`.
-- [ ] **Missing 2OP Opcodes**: `dec_chk`, `inc_chk`, `jin`.
-- [ ] **V5+ Features**: Expanded alphabet tables and header extension table.
-- [ ] **Screen Model**: Implement `split_window`, `set_window`, and cursor management for V3+ status lines.
-- [ ] **Timed Input**: Support for timeouts in `read` and `read_char`.
+## Absolute Mandates
+- **No New Features**: Do not implement meta-commands, sound, or advanced UI until Priority 0 and 1 are achieved.
+- **WASM Scoping**: Remember that Elixir assignments inside Orb `if` blocks do NOT set WASM locals. Use `if/else` returns or helper functions.
+- **PC Alignment**: Every instruction MUST consume exactly the number of operand bytes specified by its type prefix. Use `fetch_var_operand` to safely consume optional operands.
+- **Variable References**: Opcodes taking a variable index (store, load, inc, dec, pull, etc.) must handle variable 0 as SP correctly (pop for index, then pop/push for value).
 
-## Development Guidelines
-- **No `if` Expressions**: Use `case` or pattern matching with guards in Elixir code.
-- **Orb Stability**: Complex nested `if` blocks in `defw` can cause translation errors. Use `return()` early or refactor into smaller helper functions.
-- **Explicit Types**: Always use `I32.const()` for literals in complex expressions to avoid Orb type inference issues.
-- **Testing**: Test against real interaction patterns. Use `OrbWasmtime` for execution and verify memory/state directly.
+## Testing
+- Run integration tests with: `mix test test/zorb_prover_test.exs`
+- Integration tests use a non-blocking `Runner` with an asynchronous input buffer.
+- Use `Expect.expect(pattern, timeout, task_pid)` to verify output.
+- Use `Expect.dispute(pattern)` to fail early on known error strings (e.g., "ERROR").

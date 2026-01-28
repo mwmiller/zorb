@@ -49,7 +49,11 @@ defmodule Zorb.InterpreterTest.Font3 do
            0
          end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))

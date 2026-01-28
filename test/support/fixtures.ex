@@ -1,4 +1,5 @@
 defmodule Zorb.TestFixtures do
+  @moduledoc false
   @doc """
   Generates a standard Z-machine header for the given version.
   """
@@ -12,19 +13,39 @@ defmodule Zorb.TestFixtures do
 
     # 64-byte header
     header = <<
-      version,          # 0x00
-      0,                # 0x01 Flags 1
-      0, 0,             # 0x02 Release
-      0, 0,             # 0x04 High memory base (unused in tests mostly)
-      pc::16,           # 0x06 Initial PC
-      dictionary::16,   # 0x08 Dictionary
-      objects::16,      # 0x0A Object Table
-      globals::16,      # 0x0C Globals
-      static::16,       # 0x0E Static Memory
-      0, 0,             # 0x10 Flags 2
-      0, 0, 0, 0,       # 0x12-0x15 Reserved
-      0, 0,             # 0x16 Serial (part 1)
-      abbrevs::16       # 0x18 Abbreviations
+      # 0x00
+      version,
+      # 0x01 Flags 1
+      0,
+      # 0x02 Release
+      0,
+      0,
+      # 0x04 High memory base (unused in tests mostly)
+      0,
+      0,
+      # 0x06 Initial PC
+      pc::16,
+      # 0x08 Dictionary
+      dictionary::16,
+      # 0x0A Object Table
+      objects::16,
+      # 0x0C Globals
+      globals::16,
+      # 0x0E Static Memory
+      static::16,
+      # 0x10 Flags 2
+      0,
+      0,
+      # 0x12-0x15 Reserved
+      0,
+      0,
+      0,
+      0,
+      # 0x16 Serial (part 1)
+      0,
+      0,
+      # 0x18 Abbreviations
+      abbrevs::16
     >>
 
     header <> :binary.copy(<<0>>, 64 - byte_size(header))
@@ -48,7 +69,9 @@ defmodule Zorb.TestFixtures do
   """
   def routine_header(version, num_locals, local_values \\ []) do
     if version <= 3 do
-      values = Enum.take(local_values ++ Stream.repeatedly(fn -> 0 end) |> Enum.to_list(), num_locals)
+      values =
+        Enum.take((local_values ++ Stream.repeatedly(fn -> 0 end)) |> Enum.to_list(), num_locals)
+
       values_bin = for v <- values, into: <<>>, do: <<v::16>>
       <<num_locals, values_bin::binary>>
     else
@@ -62,11 +85,13 @@ defmodule Zorb.TestFixtures do
   def object_table(version) do
     defaults = :binary.copy(<<0>>, if(version <= 3, do: 62, else: 126))
     # Object 1: no attributes, no parent/sib/child, props at 0x0800
-    obj1 = if version <= 3 do
-      <<0::32, 0, 0, 0, 0x0800::16>>
-    else
-      <<0::48, 0::16, 0::16, 0::16, 0x0800::16>>
-    end
+    obj1 =
+      if version <= 3 do
+        <<0::32, 0, 0, 0, 0x0800::16>>
+      else
+        <<0::48, 0::16, 0::16, 0::16, 0x0800::16>>
+      end
+
     defaults <> obj1
   end
 end

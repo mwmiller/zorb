@@ -25,7 +25,11 @@ defmodule Zorb.InterpreterTest do
         Zorb.TestRuntime.run(Interpreter, [
           {:zio, :print_char, fn _ -> 0 end},
           {:zio, :read_char, fn -> 0 end},
-          {:zio, :halt, fn _ -> 0 end}
+          {:zio, :get_random_seed, fn -> 12_345 end},
+          {:zio, :get_capabilities, fn -> 0 end},
+          {:zio, :halt, fn _, _, _ -> 0 end},
+          {:zio, :log_step, fn _, _ -> nil end},
+          {:zio, :log_step, fn _, _ -> nil end}
         ])
 
       Zorb.TestRuntime.write_memory(inst, 0, header)
@@ -73,7 +77,11 @@ defmodule Zorb.InterpreterTest do
       Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -118,7 +126,11 @@ defmodule Zorb.InterpreterTest do
       Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -161,7 +173,11 @@ defmodule Zorb.InterpreterTest do
       Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -207,7 +223,11 @@ defmodule Zorb.InterpreterTest do
       Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -248,7 +268,7 @@ defmodule Zorb.InterpreterTest do
     # call 0x0100 (packed 0x0200), store in G16
     code = <<0xE0, 0x3F, 0x01, 0x00, 16>>
 
-    # Routine at 0x0200: 
+    # Routine at 0x0200:
     # 1 local variable
     # rtrue (return 1)
     # 1 local, rtrue (0xB0 is 0OP opcode 0)
@@ -258,7 +278,11 @@ defmodule Zorb.InterpreterTest do
       Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -315,7 +339,11 @@ defmodule Zorb.InterpreterTest do
            0
          end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -366,7 +394,11 @@ defmodule Zorb.InterpreterTest do
            0
          end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -426,7 +458,11 @@ defmodule Zorb.InterpreterTest do
       Zorb.TestRuntime.run(Interpreter, [
         {:zio, :print_char, fn _ -> 0 end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
@@ -506,7 +542,11 @@ defmodule Zorb.InterpreterTest do
            0
          end},
         {:zio, :read_char, fn -> 0 end},
-        {:zio, :halt, fn _ -> 0 end}
+        {:zio, :get_random_seed, fn -> 12_345 end},
+        {:zio, :get_capabilities, fn -> 0 end},
+        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :log_step, fn _, _ -> nil end},
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     Zorb.TestRuntime.write_memory(inst, 0, :binary.bin_to_list(header))
