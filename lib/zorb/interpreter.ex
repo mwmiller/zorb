@@ -1065,7 +1065,7 @@ defmodule Zorb.Interpreter do
       # VAR:9 = pull
       op5 =
         if I32.eq(opcode, I32.const(0x09)) do
-          fetch_var_ref_operand(op1)
+          fetch_raw_operand(op1)
         else
           fetch_var_operand(op1)
         end
@@ -1747,6 +1747,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opcode, I32.const(0x09)) do
+      # pull (VAR:9)
       val = pop_stack()
 
       if I32.ne(op1, I32.const(0)) do
