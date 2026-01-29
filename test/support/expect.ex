@@ -14,16 +14,32 @@ defmodule Zorb.TestSupport.Expect do
     Process.put(:zorb_disputes, [pattern | disputes])
   end
 
+  @doc """
+  Registers an answer to be sent when a pattern is matched in the output.
+  Options:
+    - :task_pid - The PID of the runner task (required for injection)
+    - :add_newline - Whether to append a newline (default true)
+  """
+  def answer_on(pattern, response, opts \\ []) do
+    task_pid = Keyword.get(opts, :task_pid)
+    add_newline = Keyword.get(opts, :add_newline, true)
+    
+    answers = Process.get(:zorb_answers, [])
+    Process.put(:zorb_answers, [{pattern, response, add_newline, task_pid} | answers])
+  end
+
   defp do_expect(buffer, pattern, timeout, task_pid) do
     receive do
       {:zorb_output, char} ->
         # Real-time output for debugging
-        IO.write(if char == ?\r, do: "\n", else: <<char>>)
+        IO.write(if char == ?\r, do: "\n", else: <<char::utf8>>)
         new_buffer = buffer <> List.to_string([char])
 
         if char == ?\r do
           check_disputes!(new_buffer)
         end
+
+        check_answers!(new_buffer, task_pid)
 
         if matches?(new_buffer, pattern) do
           new_buffer
@@ -68,28 +84,51 @@ defmodule Zorb.TestSupport.Expect do
     end
   end
 
-  defp dump_buffer(buffer) do
-    IO.puts("\n--- BUFFER DUMP START ---")
-    IO.puts(String.replace(buffer, "\r", "\n"))
-    IO.puts("--- BUFFER DUMP END ---\n")
+  defp check_answers!(buffer, default_task_pid) do
+    answers = Process.get(:zorb_answers, [])
+
+    # Use a filter map approach to avoid flunking during the loop
+    remaining = Enum.reject(answers, fn {pattern, response, add_newline, task_pid} ->
+      if matches?(buffer, pattern) do
+        target_pid = task_pid || default_task_pid
+        if target_pid do
+          # Trigger the answer
+          answer(target_pid, response, add_newline)
+          true # reject from remaining
+        else
+          false
+        end
+      else
+        false
+      end
+    end)
+    
+    Process.put(:zorb_answers, remaining)
   end
 
   defp matches?(buffer, %Regex{} = pattern), do: Regex.run(pattern, buffer)
   defp matches?(buffer, pattern) when is_binary(pattern), do: String.contains?(buffer, pattern)
 
-  def answer(pid, string) do
+  def answer(pid, string, add_newline \\ true) do
+    IO.puts("DEBUG answer: string=#{inspect(string)} add_newline=#{add_newline}")
     chars = String.to_charlist(string)
 
     # Z-machine often expects a newline to process input
     chars =
-      if String.ends_with?(string, "\n") do
-        chars
-      else
+      if add_newline and not String.ends_with?(string, "\n") do
         chars ++ [?\n]
+      else
+        chars
       end
 
     Zorb.Runner.inject_input(pid, chars)
     # Give the Z-machine a tiny bit of time to start processing
     Process.sleep(10)
+  end
+
+  defp dump_buffer(buffer) do
+    IO.puts("\n--- BUFFER DUMP START ---")
+    IO.puts(String.replace(buffer, "\r", "\n"))
+    IO.puts("--- BUFFER DUMP END ---\n")
   end
 end

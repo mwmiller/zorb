@@ -6,9 +6,31 @@ defmodule Zorb.Runner do
     owner = owner || self()
     story = File.read!(path)
 
-    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner}
+    # Get Extension Table address from Header word 0x34
+    extension_table_addr = case story do
+      <<_::binary-size(0x34), addr::integer-size(16), _::binary>> -> addr
+      _ -> 0
+    end
+
+    unicode_table = if extension_table_addr > 0 do
+      # Word 3 (offset + 6) of extension table is the Unicode Table address
+      case story do
+        <<_::binary-size(extension_table_addr + 6), ut_addr::integer-size(16), _::binary>> ->
+          if ut_addr > 0 do
+            <<_::binary-size(ut_addr), len::8, table_data::binary>> = story
+            for <<char::integer-size(16) <- binary_part(table_data, 0, min(len * 2, byte_size(table_data)))>>, do: char
+          else
+            []
+          end
+        _ -> []
+      end
+    else
+      []
+    end
+
+    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner, unicode_table: unicode_table}
     {:ok, agent} =
-      Agent.start_link(fn -> %{instance: nil, buffer: [], halt: nil, owner: owner} end)
+      Agent.start_link(fn -> %{instance: nil, buffer: [], halt: nil, owner: owner, unicode_table: unicode_table} end)
 
     imports = build_imports(agent)
 
@@ -23,8 +45,8 @@ defmodule Zorb.Runner do
     # Call load_story to set @story_len and fill memory
     {:ok, _} = Wasmex.call_function(instance, "load_story", [0, byte_size(story)])
 
-    # Init with stack at 0xC0000
-    {:ok, _} = Wasmex.call_function(instance, "init", [0xC0000])
+    # Init with stack at 0x90000 (safely above 512KB story limit)
+    {:ok, _} = Wasmex.call_function(instance, "init", [0x90000])
 
     # Run the loop in a separate task so this process can receive input messages
     task = Task.async(fn -> loop(instance, agent, 0) end)
@@ -34,29 +56,32 @@ defmodule Zorb.Runner do
 
   defp message_loop(task, agent) do
     receive do
-      {:zorb_input, char} ->
-        Agent.update(agent, fn s -> %{s | buffer: s.buffer ++ [char]} end)
+      msg ->
+        case msg do
+          {:zorb_input, char} ->
+            IO.puts("DEBUG message_loop received :zorb_input char=#{char}")
+            Agent.update(agent, fn s ->
+              IO.puts("DEBUG agent update: adding #{char} to buffer")
+              %{s | buffer: s.buffer ++ [char]}
+            end)
+            send(task.pid, {:zorb_input_ready})
+            message_loop(task, agent)
 
-        # Notify the task if it's waiting for input
-        case Task.yield(task, 0) do
-          nil -> send(task.pid, {:zorb_input_ready})
-          _ -> :ok
+          {^task, res} ->
+            res
+
+          {:DOWN, _ref, :process, _pid, _reason} ->
+            :ok
+
+          _ ->
+            message_loop(task, agent)
         end
-
-        message_loop(task, agent)
-
-      # Handle Task completion
-      {^task, res} ->
-        res
-
-      # Handle Task down
-      {:DOWN, _ref, :process, _pid, _reason} ->
-        :ok
     end
   end
 
   def inject_input(pid, chars) when is_list(chars) do
     for char <- chars do
+      IO.puts("DEBUG INJECT_INPUT SENDING #{char} TO #{inspect(pid)}")
       send(pid, {:zorb_input, char})
     end
   end
@@ -71,7 +96,8 @@ defmodule Zorb.Runner do
         "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
         "log_step" =>
           {:fn, [:i32, :i32], [],
-           fn _ctx, _code, _val ->
+           fn _ctx, code, val ->
+             IO.puts("DEBUG WASM LOG: code=0x#{Integer.to_string(code, 16)} val=#{val} (0x#{Integer.to_string(val, 16)})")
              nil
            end}
       }
@@ -94,17 +120,37 @@ defmodule Zorb.Runner do
 
   defp wait_for_input(agent) do
     # Check if we already have input
-    case Agent.get(agent, fn s -> s.buffer end) do
-      [char | rest] ->
+    case Agent.get(agent, fn s -> {s.buffer, s.unicode_table} end) do
+      {[char | rest], unicode_table} ->
         Agent.update(agent, fn s -> %{s | buffer: rest} end)
-        char
 
-      [] ->
+        zscii =
+          cond do
+            char == 10 ->
+              13
+
+            char < 128 ->
+              char
+
+            true ->
+              # Lookup in Unicode table (Spec 3.10)
+              # Entries start at ZSCII 155
+              case Enum.find_index(unicode_table, fn c -> c == char end) do
+                nil -> 63 # '?' fallback
+                index -> 155 + index
+              end
+          end
+
+        zscii
+
+      {[], _} ->
         # Wait for a message from message_loop
         receive do
-          {:zorb_input_ready} -> wait_for_input(agent)
+          {:zorb_input_ready} ->
+            wait_for_input(agent)
         after
-          1000 -> wait_for_input(agent)
+          100 ->
+            wait_for_input(agent)
         end
     end
   end

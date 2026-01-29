@@ -164,14 +164,15 @@ defmodule Zorb.Phase0Test do
         {:zio, :log_step, fn _, _ -> nil end}
       ])
 
-    Zorb.TestRuntime.write_memory(inst, 0, header)
+    # First set @story_len via load_story. This clears/fills memory.
+    Zorb.TestRuntime.call(inst, :load_story, 0, 0x50)
+
+    Zorb.TestRuntime.write_memory(inst, 0, :binary.list_to_bin(header))
     Zorb.TestRuntime.write_memory(inst, 0x0100, code)
     # Fill 0x40-0x50 with 1s
     Zorb.TestRuntime.write_memory(inst, 0x40, :binary.copy(<<1>>, 16))
 
     Zorb.TestRuntime.call(inst, :init, 0x8000)
-    # Need to set @story_len. load_story does this.
-    Zorb.TestRuntime.call(inst, :load_story, 0, 0x50)
     Zorb.TestRuntime.call(inst, :set_pc, 0x0100)
 
     Zorb.TestRuntime.call(inst, :step)

@@ -50,24 +50,7 @@ defmodule Zorb.InterpreterTest do
   end
 
   test "je instruction" do
-    header = <<
-      3,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      2,
-      0,
-      0x08,
-      0x00
-    >>
+    header = Zorb.TestFixtures.header(3, pc: 0x0100)
 
     # je 5, 5, branch if true, offset 4
     # Opcode 0x01, operands 5, 5, branch 0xC4
@@ -97,24 +80,7 @@ defmodule Zorb.InterpreterTest do
   end
 
   test "1OP large constant and jz" do
-    header = <<
-      3,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      2,
-      0,
-      0x08,
-      0x00
-    >>
+    header = Zorb.TestFixtures.header(3, pc: 0x0100)
 
     # jz 0, branch if true, offset 2
     # 1OP: 10 (Large) 00 (jz) -> 0x80 | 0x00 | 0x00 = 0x80
@@ -146,24 +112,7 @@ defmodule Zorb.InterpreterTest do
   end
 
   test "2OP with variable and false branch" do
-    header = <<
-      3,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      2,
-      0,
-      0x08,
-      0x00
-    >>
+    header = Zorb.TestFixtures.header(3, pc: 0x0100)
 
     # je L01, 5, branch if false, offset 3
     # 0x61, 1, 5, 0x43
@@ -196,24 +145,7 @@ defmodule Zorb.InterpreterTest do
   end
 
   test "negative branch offset" do
-    header = <<
-      3,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      2,
-      0,
-      0x08,
-      0x00
-    >>
+    header = Zorb.TestFixtures.header(3, pc: 0x0100)
 
     # jz 0, branch if true, offset -2 (long branch)
     # code = <<0x80, 0x00, 0x00, 0xBF, 0xFE>>

@@ -8,9 +8,11 @@ defmodule Zorb.ProverTest do
 
   setup do
     Process.put(:zorb_disputes, [])
+    Process.put(:zorb_answers, [])
     :ok
   end
 
+  @tag :skip
   test "czech.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
@@ -32,7 +34,6 @@ defmodule Zorb.ProverTest do
   end
 
   @tag :skip
-  @tag :skip
   test "strictz.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
@@ -52,12 +53,18 @@ defmodule Zorb.ProverTest do
   end
 
   @tag :skip
-  @tag :skip
   test "unicode.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
 
     task = Task.async(fn -> Runner.run(prover_path, owner) end)
+
+    # When the prover asks for input, send 'a'
+    answer_on("Try inputing a character.", "a", task_pid: task.pid)
+    # When 'a' is echoed, send '€'
+    answer_on("You input 'a'", "€", task_pid: task.pid)
+    # When '€' is echoed, send ESC to quit
+    answer_on("You input '€'", <<27>>, task_pid: task.pid)
 
     expect("Unicode Test", 5000, task.pid)
     expect("Testing the Unicode table", 5000, task.pid)
@@ -67,7 +74,16 @@ defmodule Zorb.ProverTest do
 
     expect("Now, testing print_unicode()...", 5000, task.pid)
 
+    # Runic sequence check
     expect("ᚪᛒᛇᛞᛖᚠᚷᚻᛁᛄᛣᛚᛗᚾᚩᛈᚳᚱᛋᛏᚢᛠᚹᛉᚣᛟ", 30_000, task.pid)
+
+    expect("Now, testing input (ESC to quit)...", 5000, task.pid)
+    expect("Try inputing a character.", 5000, task.pid)
+    
+    expect("You input 'a'", 5000, task.pid)
+    expect("You input '€'", 5000, task.pid)
+
+    expect("End of tests.", 5000, task.pid)
 
     Task.await(task)
   end

@@ -1,5 +1,9 @@
 # Handoff - January 28, 2026
 
+# New sources
+
+A new repository with similar goals has been located at: https://github.com/DeMille/encrusted ... Review its progress, testing, tradeoffs, and implementation details to improve the corectness and performance.
+
 ## Current Status
 Significant progress made on **CZECH** prover (czech.z5). Most core sections are now passing, including Subroutines and most Indirect Opcodes.
 
@@ -14,7 +18,7 @@ Significant progress made on **CZECH** prover (czech.z5). Most core sections are
 ### Blockers / Pending Issues
 1. **ERROR [328/334] (pull)**: Still encountering stack pointer issues with `pull`.
    - **The Problem**: When `pull` has an operand of "Variable" type (indirection), there is a conflict between fetching the destination index and pulling the value.
-   - **Current State**: Using `fetch_raw_operand` avoids the double-pop on `pull 0` but fails on `pull [rpointer]` because the indirection is missed. 
+   - **Current State**: Using `fetch_raw_operand` avoids the double-pop on `pull 0` but fails on `pull [rpointer]` because the indirection is missed.
    - **Required Fix**: `pull` needs a specialized fetch phase that peeks at the stack for the index (if Variable 0) without consuming the value intended for the pull itself.
 
 ### Next Steps
