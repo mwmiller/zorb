@@ -1046,103 +1046,117 @@ defmodule Zorb.Interpreter do
     if(I32.le_u(@version, 3), do: I32.band(b, 31), else: I32.band(b, 63))
   end
 
-  defwp get_prop_header_size(addr: T.Address), I32, b: I32 do
+  defwp get_prop_header_size(header_addr: T.Address), I32, b: I32 do
     if I32.le_u(@version, I32.const(3)) do
-      return(I32.const(1))
+      I32.const(1)
+    else
+      b = read_byte(header_addr)
+      if I32.band(b, 128), do: I32.const(2), else: I32.const(1)
     end
-
-    b = read_byte(addr)
-
-    if I32.band(b, I32.const(128)) do
-      return(I32.const(2))
-    end
-
-    I32.const(1)
   end
 
-  defwp get_prop_data_size(addr: T.Address), I32, b: I32 do
-    if I32.le_u(@version, 3), do: return(I32.add(I32.shr_u(read_byte(I32.sub(addr, 1)), 5), 1))
-    b = read_byte(I32.sub(addr, 1))
+  defwp get_prop_data_size(header_addr: T.Address), I32, b: I32 do
+    b = read_byte(header_addr)
 
-    if I32.band(b, 128) do
-      b = I32.band(b, 63)
-      if I32.eq(b, 0), do: return(64), else: return(b)
+    if I32.le_u(@version, 3) do
+      I32.add(I32.shr_u(b, 5), 1)
+    else
+      if I32.band(b, 128) do
+        # 2-byte header, size is in bits 0-5 of second byte.
+        b = I32.band(read_byte(I32.add(header_addr, 1)), 63)
+        if I32.eq(b, 0), do: I32.const(64), else: b
+      else
+        # 1-byte header, bit 6 is size (0=1, 1=2).
+        if I32.band(b, 64), do: I32.const(2), else: I32.const(1)
+      end
     end
-
-    # Bit 7 is clear. Check if the byte before it has bit 7 set (meaning this is the second header byte).
-    if I32.band(read_byte(I32.sub(addr, 2)), 128) do
-      b = I32.band(b, 63)
-      if I32.eq(b, 0), do: return(64), else: return(b)
-    end
-
-    # 1-byte header
-    if I32.band(b, 64), do: I32.const(2), else: I32.const(1)
   end
 
-  defwp skip_name(addr: T.Address), T.Address do
-    loop NameLoop do
-      if(I32.band(read_word(addr), 0x8000), do: return(I32.add(addr, 2)))
-      addr = I32.add(addr, 2)
-      NameLoop.continue()
-    end
-
-    addr
+  defwp skip_name(name_addr: T.Address), T.Address do
+    I32.add(name_addr, I32.shl(read_byte(I32.sub(name_addr, 1)), 1))
   end
 
-  defw get_prop_address(obj: T.Object, prop: T.Property), T.Address, addr: T.Address do
+  defw get_prop_header_address(obj: T.Object, prop: T.Property), T.Address, addr: T.Address do
     addr = skip_name(I32.add(get_prop_table_address(obj), 1))
 
     loop PropLoop do
       if(I32.eq(read_byte(addr), 0), do: return(0))
 
       if I32.eq(get_prop_num(addr), prop) do
-        return(I32.add(addr, get_prop_header_size(addr)))
+        return(addr)
       end
 
-      addr =
-        I32.add(
-          I32.add(addr, get_prop_header_size(addr)),
-          get_prop_data_size(I32.add(addr, get_prop_header_size(addr)))
-        )
-
+      addr = I32.add(addr, I32.add(get_prop_header_size(addr), get_prop_data_size(addr)))
       PropLoop.continue()
     end
 
     0
   end
 
+  defw get_prop_address(obj: T.Object, prop: T.Property), T.Address, addr: T.Address do
+    addr = get_prop_header_address(obj, prop)
+
+    if I32.eq(addr, 0) do
+      I32.const(0)
+    else
+      I32.add(addr, get_prop_header_size(addr))
+    end
+  end
+
   defw get_prop_value(obj: T.Object, prop: T.Property), I32, addr: T.Address do
-    addr = get_prop_address(obj, prop)
+    addr = get_prop_header_address(obj, prop)
 
     if(I32.eq(addr, 0),
       do: return(read_word(I32.add(@object_table_base, I32.shl(I32.sub(prop, 1), 1))))
     )
 
-    if(I32.eq(get_prop_data_size(addr), 1), do: read_byte(addr), else: read_word(addr))
+    if I32.eq(get_prop_data_size(addr), 1) do
+      read_byte(I32.add(addr, get_prop_header_size(addr)))
+    else
+      read_word(I32.add(addr, get_prop_header_size(addr)))
+    end
   end
 
   defw put_prop_value(obj: T.Object, prop: T.Property, val: I32), addr: T.Address do
-    addr = get_prop_address(obj, prop)
+    addr = get_prop_header_address(obj, prop)
     if(I32.eq(addr, 0), do: return())
 
-    if(I32.eq(get_prop_data_size(addr), 1),
-      do: write_byte(addr, val),
-      else: write_word(addr, val)
-    )
+    if I32.eq(get_prop_data_size(addr), 1) do
+      write_byte(I32.add(addr, get_prop_header_size(addr)), val)
+    else
+      write_word(I32.add(addr, get_prop_header_size(addr)), val)
+    end
   end
 
   defw get_next_prop(obj: T.Object, prop: T.Property), I32, addr: T.Address do
-    if(I32.eq(prop, 0),
-      do: return(get_prop_num(skip_name(I32.add(get_prop_table_address(obj), 1))))
-    )
+    if I32.eq(prop, 0) do
+      addr = skip_name(I32.add(get_prop_table_address(obj), 1))
+      return(get_prop_num(addr))
+    end
 
-    addr = get_prop_address(obj, prop)
+    addr = get_prop_header_address(obj, prop)
     if(I32.eq(addr, 0), do: return(0))
-    get_prop_num(I32.add(addr, get_prop_data_size(addr)))
+    # Move to next header
+    addr = I32.add(addr, I32.add(get_prop_header_size(addr), get_prop_data_size(addr)))
+    get_prop_num(addr)
   end
 
-  defw get_prop_len(addr: T.Address), I32 do
-    if(I32.eq(addr, 0), do: I32.const(0), else: get_prop_data_size(addr))
+  defw get_prop_len(data_addr: T.Address), I32, b: I32 do
+    if I32.eq(data_addr, 0), do: return(0)
+
+    # Working backward from data address is still needed for get_prop_len opcode
+    # because it ONLY receives the data address.
+    b = read_byte(I32.sub(data_addr, 1))
+
+    if I32.le_u(@version, 3), do: return(I32.add(I32.shr_u(b, 5), 1))
+
+    # V4+ logic from Spec 12.4.3
+    if I32.band(b, 128) do
+      b = I32.band(b, 63)
+      if I32.eq(b, 0), do: I32.const(64), else: b
+    else
+      if I32.band(b, 64), do: I32.const(2), else: I32.const(1)
+    end
   end
 
   defw print_char_wasm(char: I32), len: I32 do

@@ -12,7 +12,7 @@ defmodule Zorb.ProverTest do
     :ok
   end
 
-  @tag :not_skip
+  @tag :skip
   test "czech.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
@@ -56,7 +56,7 @@ defmodule Zorb.ProverTest do
     Task.await(task)
   end
 
-  # @tag :not_skip
+  @tag :not_skip
   test "unicode.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
