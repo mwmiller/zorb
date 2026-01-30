@@ -7,30 +7,11 @@ defmodule Zorb.Runner do
     story = File.read!(path)
 
     # Get Extension Table address from Header word 0x34
-    extension_table_addr = case story do
-      <<_::binary-size(0x34), addr::integer-size(16), _::binary>> -> addr
-      _ -> 0
-    end
+    if story == nil, do: raise("No story provided")
 
-    unicode_table = if extension_table_addr > 0 do
-      # Word 3 (offset + 6) of extension table is the Unicode Table address
-      case story do
-        <<_::binary-size(extension_table_addr + 6), ut_addr::integer-size(16), _::binary>> ->
-          if ut_addr > 0 do
-            <<_::binary-size(ut_addr), len::8, table_data::binary>> = story
-            for <<char::integer-size(16) <- binary_part(table_data, 0, min(len * 2, byte_size(table_data)))>>, do: char
-          else
-            []
-          end
-        _ -> []
-      end
-    else
-      []
-    end
-
-    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner, unicode_table: unicode_table}
+    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner}
     {:ok, agent} =
-      Agent.start_link(fn -> %{instance: nil, buffer: [], halt: nil, owner: owner, unicode_table: unicode_table} end)
+      Agent.start_link(fn -> %{instance: nil, buffer: [], halt: nil, owner: owner} end)
 
     imports = build_imports(agent)
 
@@ -48,6 +29,14 @@ defmodule Zorb.Runner do
     # Init with stack at 0x90000 (safely above 512KB story limit)
     {:ok, _} = Wasmex.call_function(instance, "init", [0x90000])
 
+    # Load default Unicode table at 0x80000
+
+    default_unicode = Zorb.Interpreter.unicode_table()
+
+    binary_table = for char <- default_unicode, into: <<>>, do: <<char::integer-size(16)>>
+
+    Wasmex.Memory.write_binary(store, memory, 0x80000, binary_table)
+
     # Run the loop in a separate task so this process can receive input messages
     task = Task.async(fn -> loop(instance, agent, 0) end)
 
@@ -59,11 +48,10 @@ defmodule Zorb.Runner do
       msg ->
         case msg do
           {:zorb_input, char} ->
-            IO.puts("DEBUG message_loop received :zorb_input char=#{char}")
             Agent.update(agent, fn s ->
-              IO.puts("DEBUG agent update: adding #{char} to buffer")
               %{s | buffer: s.buffer ++ [char]}
             end)
+
             send(task.pid, {:zorb_input_ready})
             message_loop(task, agent)
 
@@ -81,7 +69,6 @@ defmodule Zorb.Runner do
 
   def inject_input(pid, chars) when is_list(chars) do
     for char <- chars do
-      IO.puts("DEBUG INJECT_INPUT SENDING #{char} TO #{inspect(pid)}")
       send(pid, {:zorb_input, char})
     end
   end
@@ -96,8 +83,7 @@ defmodule Zorb.Runner do
         "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
         "log_step" =>
           {:fn, [:i32, :i32], [],
-           fn _ctx, code, val ->
-             IO.puts("DEBUG WASM LOG: code=0x#{Integer.to_string(code, 16)} val=#{val} (0x#{Integer.to_string(val, 16)})")
+           fn _ctx, _code, _val ->
              nil
            end}
       }
@@ -119,37 +105,20 @@ defmodule Zorb.Runner do
   end
 
   defp wait_for_input(agent) do
-    # Check if we already have input
-    case Agent.get(agent, fn s -> {s.buffer, s.unicode_table} end) do
-      {[char | rest], unicode_table} ->
+    case Agent.get(agent, fn s -> s.buffer end) do
+      [char | rest] ->
         Agent.update(agent, fn s -> %{s | buffer: rest} end)
 
-        zscii =
-          cond do
-            char == 10 ->
-              13
-
-            char < 128 ->
-              char
-
-            true ->
-              # Lookup in Unicode table (Spec 3.10)
-              # Entries start at ZSCII 155
-              case Enum.find_index(unicode_table, fn c -> c == char end) do
-                nil -> 63 # '?' fallback
-                index -> 155 + index
-              end
-          end
+        zscii = if char == 10, do: 13, else: char
 
         zscii
 
-      {[], _} ->
-        # Wait for a message from message_loop
+      [] ->
         receive do
           {:zorb_input_ready} ->
             wait_for_input(agent)
         after
-          100 ->
+          1000 ->
             wait_for_input(agent)
         end
     end

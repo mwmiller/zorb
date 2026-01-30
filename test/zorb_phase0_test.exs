@@ -146,6 +146,9 @@ defmodule Zorb.Phase0Test do
     header = Zorb.TestFixtures.header(3, pc: 0x0100)
     # Set checksum at 0x1C
     header = :binary.bin_to_list(header)
+    header = List.replace_at(header, 0x1A, 0)
+    # 0x28 * 2 = 0x50 bytes
+    header = List.replace_at(header, 0x1B, 0x28)
     header = List.replace_at(header, 0x1C, 0)
     header = List.replace_at(header, 0x1D, 16)
 

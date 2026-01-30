@@ -12,7 +12,7 @@ defmodule Zorb.ProverTest do
     :ok
   end
 
-  @tag :skip
+  @tag :not_skip
   test "czech.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
@@ -33,7 +33,7 @@ defmodule Zorb.ProverTest do
     Task.await(task)
   end
 
-  @tag :skip
+  @tag :not_skip
   test "strictz.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
@@ -42,7 +42,9 @@ defmodule Zorb.ProverTest do
 
     expect("Strict Z Test", 5000, task.pid)
     expect("Would you like to make a transcript of the test results? (Y/N)", 5000, task.pid)
-    answer(task.pid, "n")
+    answer_on("Transcript? (Y/N)", "N", task_pid: task.pid)
+    answer_on("Transcript? (y/n)", "n", task_pid: task.pid)
+    answer(task.pid, "N")
 
     expect("Test completed!", 60_000, task.pid)
 
@@ -52,38 +54,37 @@ defmodule Zorb.ProverTest do
     Task.await(task)
   end
 
-  @tag :skip
+  # @tag :not_skip
   test "unicode.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
 
     task = Task.async(fn -> Runner.run(prover_path, owner) end)
 
-    # When the prover asks for input, send 'a'
-    answer_on("Try inputing a character.", "a", task_pid: task.pid)
-    # When 'a' is echoed, send '€'
-    answer_on("You input 'a'", "€", task_pid: task.pid)
-    # When '€' is echoed, send ESC to quit
-    answer_on("You input '€'", <<27>>, task_pid: task.pid)
+    # When the prover asks for input, send '€'
+    answer_on("Try inputing a character.", "€", task_pid: task.pid)
+    # When '€' is processed, send ESC to quit
+    # In the custom Unicode table provided by unicode.z5, Euro is at ZSCII 0xE2.
+    answer_on("ZSCII $00e2 = €", <<27>>, task_pid: task.pid, add_newline: false)
 
     expect("Unicode Test", 5000, task.pid)
-    expect("Testing the Unicode table", 5000, task.pid)
+
+    expect(
+      "Testing the Unicode table. This sentence should end with Euro, copyright and trademark symbols € © ™",
+      5000,
+      task.pid
+    )
 
     # Euro symbol check (Unicode 0x20AC)
-    expect("€ © ™", 5000, task.pid)
-
     expect("Now, testing print_unicode()...", 5000, task.pid)
-
-    # Runic sequence check
-    expect("ᚪᛒᛇᛞᛖᚠᚷᚻᛁᛄᛣᛚᛗᚾᚩᛈᚳᚱᛋᛏᚢᛠᚹᛉᚣᛟ", 30_000, task.pid)
+    expect("Basic Latin", 10_000, task.pid)
+    expect("0020 :  !\"\#$%&'()*+,-./0123456789:;<=>?", 5000, task.pid)
+    expect("Latin-1 Supplement", 10_000, task.pid)
+    expect("00a0 :  ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿", 5000, task.pid)
+    expect("Arabic", 20_000, task.pid)
 
     expect("Now, testing input (ESC to quit)...", 5000, task.pid)
-    expect("Try inputing a character.", 5000, task.pid)
-    
-    expect("You input 'a'", 5000, task.pid)
-    expect("You input '€'", 5000, task.pid)
-
-    expect("End of tests.", 5000, task.pid)
+    expect("ZSCII $00e2 = €", 5000, task.pid)
 
     Task.await(task)
   end

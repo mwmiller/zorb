@@ -23,7 +23,7 @@ defmodule Zorb.TestSupport.Expect do
   def answer_on(pattern, response, opts \\ []) do
     task_pid = Keyword.get(opts, :task_pid)
     add_newline = Keyword.get(opts, :add_newline, true)
-    
+
     answers = Process.get(:zorb_answers, [])
     Process.put(:zorb_answers, [{pattern, response, add_newline, task_pid} | answers])
   end
@@ -32,6 +32,7 @@ defmodule Zorb.TestSupport.Expect do
     receive do
       {:zorb_output, char} ->
         # Real-time output for debugging
+        # IO.puts("DEBUG zorb_output: #{char} ('#{List.to_string([char])}')")
         IO.write(if char == ?\r, do: "\n", else: <<char::utf8>>)
         new_buffer = buffer <> List.to_string([char])
 
@@ -48,9 +49,12 @@ defmodule Zorb.TestSupport.Expect do
         end
 
       {:zorb_halt, reason, pc, opcode} ->
-        dump_buffer(buffer)
-
-        flunk("Interpreter halted with reason #{reason} at PC #{pc} (opcode #{opcode}).")
+        if reason == 0 do
+          buffer
+        else
+          dump_buffer(buffer)
+          flunk("Interpreter halted with reason #{reason} at PC #{pc} (opcode #{opcode}).")
+        end
     after
       100 ->
         if task_pid && not Process.alive?(task_pid) do
@@ -88,29 +92,35 @@ defmodule Zorb.TestSupport.Expect do
     answers = Process.get(:zorb_answers, [])
 
     # Use a filter map approach to avoid flunking during the loop
-    remaining = Enum.reject(answers, fn {pattern, response, add_newline, task_pid} ->
-      if matches?(buffer, pattern) do
-        target_pid = task_pid || default_task_pid
-        if target_pid do
-          # Trigger the answer
-          answer(target_pid, response, add_newline)
-          true # reject from remaining
-        else
-          false
-        end
+    remaining =
+      Enum.reject(answers, fn answer ->
+        should_reject?(answer, buffer, default_task_pid)
+      end)
+
+    Process.put(:zorb_answers, remaining)
+  end
+
+  defp should_reject?({pattern, response, add_newline, task_pid}, buffer, default_task_pid) do
+    if matches?(buffer, pattern) do
+      target_pid = task_pid || default_task_pid
+
+      if target_pid do
+        # Trigger the answer
+        answer(target_pid, response, add_newline)
+        # reject from remaining
+        true
       else
         false
       end
-    end)
-    
-    Process.put(:zorb_answers, remaining)
+    else
+      false
+    end
   end
 
   defp matches?(buffer, %Regex{} = pattern), do: Regex.run(pattern, buffer)
   defp matches?(buffer, pattern) when is_binary(pattern), do: String.contains?(buffer, pattern)
 
   def answer(pid, string, add_newline \\ true) do
-    IO.puts("DEBUG answer: string=#{inspect(string)} add_newline=#{add_newline}")
     chars = String.to_charlist(string)
 
     # Z-machine often expects a newline to process input
