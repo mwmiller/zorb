@@ -81,11 +81,7 @@ defmodule Zorb.Runner do
         "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
         "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
         "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
-        "log_step" =>
-          {:fn, [:i32, :i32], [],
-           fn _ctx, _code, _val ->
-             nil
-           end}
+        "log_step" => {:fn, [:i32, :i32], [], fn _ctx, _code, _val -> nil end}
       }
     }
   end

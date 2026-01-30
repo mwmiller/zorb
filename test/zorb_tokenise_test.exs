@@ -116,8 +116,7 @@ defmodule Zorb.InterpreterTest.Tokenise do
         {:zio, :get_random_seed, fn -> 12_345 end},
         {:zio, :get_capabilities, fn -> 0 end},
         {:zio, :halt, fn _, _, _ -> 0 end},
-        {:zio, :log_step,
-         fn code, val -> IO.puts("Log: #{Integer.to_string(code, 16)} = #{val}") end}
+        {:zio, :log_step, fn _, _ -> nil end}
       ])
 
     # Load header

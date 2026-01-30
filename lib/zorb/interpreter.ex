@@ -244,7 +244,6 @@ defmodule Zorb.Interpreter do
     @unicode_table_base 0
     @current_font 1
     @halted 0
-    @step_counter 0
   end
 
   Orb.Import.register(Zorb.Interpreter.ZIO)
@@ -289,31 +288,6 @@ defmodule Zorb.Interpreter do
         end
       end
     end
-  end
-
-  defwp get_arg_mask(
-          t1: I32,
-          t2: I32,
-          t3: I32,
-          t4: I32,
-          t5: I32,
-          t6: I32,
-          t7: I32,
-          t8: I32,
-          omit: I32
-        ),
-        I32,
-        mask: I32 do
-    mask = I32.const(0)
-    if I32.ne(t1, I32.const(3)), do: mask = I32.or(mask, I32.const(0x01))
-    if I32.ne(t2, I32.const(3)), do: mask = I32.or(mask, I32.const(0x02))
-    if I32.ne(t3, I32.const(3)), do: mask = I32.or(mask, I32.const(0x04))
-    if I32.ne(t4, I32.const(3)), do: mask = I32.or(mask, I32.const(0x08))
-    if I32.ne(t5, I32.const(3)), do: mask = I32.or(mask, I32.const(0x10))
-    if I32.ne(t6, I32.const(3)), do: mask = I32.or(mask, I32.const(0x20))
-    if I32.ne(t7, I32.const(3)), do: mask = I32.or(mask, I32.const(0x40))
-    if I32.ne(t8, I32.const(3)), do: mask = I32.or(mask, I32.const(0x80))
-    mask
   end
 
   # --- Variable Access (Spec 14.3) ---
@@ -474,10 +448,37 @@ defmodule Zorb.Interpreter do
     end
   end
 
+  defw execute_je(a: I32, b: I32, c: I32, d: I32, mask: I32), count: I32 do
+    count = count_args_from_mask(mask)
+
+    if I32.ge_u(count, 2) do
+      if I32.eq(a, b) do
+        fetch_branch(1)
+        return()
+      end
+    end
+
+    if I32.ge_u(count, 3) do
+      if I32.eq(a, c) do
+        fetch_branch(1)
+        return()
+      end
+    end
+
+    if I32.ge_u(count, 4) do
+      if I32.eq(a, d) do
+        fetch_branch(1)
+        return()
+      end
+    end
+
+    fetch_branch(0)
+  end
+
   # --- Opcodes ---
   defw execute_2op(opc: I32, o1: I32, o2: I32) do
     if I32.eq(opc, 0x01) do
-      fetch_branch(I32.eq(o1, o2))
+      execute_je(o1, o2, 0, 0, 0x5F)
       return()
     end
 
@@ -601,13 +602,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x19) do
       # call_2s
-      do_call(unpack_address(o1), fetch_byte(), 1, o2, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), fetch_byte(), 0x7F, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
     if I32.eq(opc, 0x1A) do
       # call_2n
-      do_call(unpack_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), 0xFF, 0x7F, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
@@ -641,12 +642,12 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x05) do
-      write_variable(o1, I32.add(read_variable_peek(o1), 1))
+      write_variable_replace(o1, I32.add(read_variable_peek(o1), 1))
       return()
     end
 
     if I32.eq(opc, 0x06) do
-      write_variable(o1, I32.sub(read_variable_peek(o1), 1))
+      write_variable_replace(o1, I32.sub(read_variable_peek(o1), 1))
       return()
     end
 
@@ -656,7 +657,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x08) do
-      do_call(unpack_address(o1), fetch_byte(), 0, 0, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), fetch_byte(), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
@@ -686,7 +687,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x0E) do
-      fetch_result_and_store(read_variable_peek(o1))
+      fetch_result_and_store(read_variable(o1))
       return()
     end
 
@@ -696,7 +697,7 @@ defmodule Zorb.Interpreter do
         fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
       else
         # call_1n
-        do_call(unpack_address(o1), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        do_call(unpack_address(o1), 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0)
       end
 
       return()
@@ -718,6 +719,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x02) do
       print_zstring(0)
+      return()
+    end
+
+    if I32.eq(opc, 0x03) do
+      print_zstring(0)
+      print_char_wasm(13)
+      do_return(1)
       return()
     end
 
@@ -800,12 +808,8 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x09) do
-      if I32.eq(o1, 0) do
-        drop_i32(pop_stack())
-      else
-        write_variable_replace(o1, pop_stack())
-      end
-
+      # pull
+      write_variable(o1, pop_stack())
       return()
     end
 
@@ -852,36 +856,36 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x18) do
-      if I32.lt_u(@version, 5) do
-        # not
-        fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
-      else
-        # call_vn
-        do_call(unpack_address(o1), 0xFF, mask, o2, o3, o4, 0, 0, 0, 0, 0)
-      end
-
+      # not
+      fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
       return()
     end
 
     if I32.eq(opc, 0x19) do
-      # call_vn2
+      # call_vn
       do_call(unpack_address(o1), 0xFF, mask, o2, o3, o4, 0, 0, 0, 0, 0)
       return()
     end
 
     if I32.eq(opc, 0x1A) do
+      # call_vn2
+      do_call(unpack_address(o1), 0xFF, mask, o2, o3, o4, 0, 0, 0, 0, 0)
+      return()
+    end
+
+    if I32.eq(opc, 0x1B) do
       # tokenize
       do_tokenise(o1, o2, o3)
       return()
     end
 
-    if I32.eq(opc, 0x1C) do
+    if I32.eq(opc, 0x1D) do
       # copy_table
       do_copy_table(o1, o2, sign_extend_16(o3))
       return()
     end
 
-    if I32.eq(opc, 0x1D) do
+    if I32.eq(opc, 0x1E) do
       # print_table
       do_print_table(o1, o2, o3, o4)
       return()
@@ -954,6 +958,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_parent(obj: T.Object), T.Object do
+    if(I32.eq(obj, 0), do: return(0))
+
     if(I32.le_u(@version, 3),
       do: read_byte(I32.add(get_object_address(obj), @object_parent_offset)),
       else: read_word(I32.add(get_object_address(obj), @object_parent_offset))
@@ -961,6 +967,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_sibling(obj: T.Object), T.Object do
+    if(I32.eq(obj, 0), do: return(0))
+
     if(I32.le_u(@version, 3),
       do: read_byte(I32.add(get_object_address(obj), @object_sibling_offset)),
       else: read_word(I32.add(get_object_address(obj), @object_sibling_offset))
@@ -968,6 +976,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_child(obj: T.Object), T.Object do
+    if(I32.eq(obj, 0), do: return(0))
+
     if(I32.le_u(@version, 3),
       do: read_byte(I32.add(get_object_address(obj), @object_child_offset)),
       else: read_word(I32.add(get_object_address(obj), @object_child_offset))
@@ -1136,6 +1146,13 @@ defmodule Zorb.Interpreter do
   end
 
   defw print_char_wasm(char: I32), len: I32 do
+    if @stream3_active do
+      len = read_word(@stream3_table)
+      write_byte(I32.add(@stream3_table, I32.add(2, len)), char)
+      write_word_direct(@stream3_table, I32.add(len, 1))
+      return()
+    end
+
     ZIO.print_char(char)
   end
 
@@ -1152,6 +1169,8 @@ defmodule Zorb.Interpreter do
 
   # --- Attributes Helpers ---
   defw check_attribute(obj: T.Object, attr: I32), I32 do
+    if(I32.eq(obj, 0), do: return(0))
+
     I32.band(
       read_byte(I32.add(get_object_address(obj), I32.shr_u(attr, 3))),
       I32.shl(1, I32.sub(7, I32.band(attr, 7)))
@@ -1159,6 +1178,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw set_attribute(obj: T.Object, attr: I32, val: I32), addr: T.Address, b: I32 do
+    if(I32.eq(obj, 0), do: return())
+
     addr = I32.add(get_object_address(obj), I32.shr_u(attr, 3))
     b = read_byte(addr)
 
@@ -1527,14 +1548,14 @@ defmodule Zorb.Interpreter do
 
   defwp count_args_from_mask(m: I32), I32, c: I32 do
     c = 0
-    c = if(I32.band(m, 0x01), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x02), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x04), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x08), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x10), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x20), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x40), do: I32.add(c, 1), else: c)
-    c = if(I32.band(m, 0x80), do: I32.add(c, 1), else: c)
+    if I32.ne(I32.band(I32.shr_u(m, 14), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m, 12), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m, 10), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m, 8), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m, 6), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m, 4), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m, 2), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(m, 3), 3), do: c = I32.add(c, 1)
     c
   end
 
@@ -1783,8 +1804,6 @@ defmodule Zorb.Interpreter do
     o7: I32,
     o8: I32,
     m: I32 do
-    @step_counter = I32.add(@step_counter, 1)
-    if(I32.eq(I32.rem_u(@step_counter, 1009), 0), do: ZIO.log_step(0x300, @pc))
     b = fetch_byte()
 
     if I32.eq(I32.band(b, 0xC0), 0xC0) do
@@ -1802,24 +1821,11 @@ defmodule Zorb.Interpreter do
           o6 = fetch_var_operand(I32.band(I32.shr_u(t2, 4), 3))
           o7 = fetch_var_operand(I32.band(I32.shr_u(t2, 2), 3))
           o8 = fetch_var_operand(I32.band(t2, 3))
-          # execute_var8(opc, t1, t2, o1, o2, o3, o4, o5, o6, o7, o8); return()
-          m =
-            get_arg_mask(
-              I32.band(I32.shr_u(t1, 6), 3),
-              I32.band(I32.shr_u(t1, 4), 3),
-              I32.band(I32.shr_u(t1, 2), 3),
-              I32.band(t1, 3),
-              I32.band(I32.shr_u(t2, 6), 3),
-              I32.band(I32.shr_u(t2, 4), 3),
-              I32.band(I32.shr_u(t2, 2), 3),
-              I32.band(t2, 3),
-              0
-            )
 
           do_call(
             unpack_address(o1),
             if(I32.eq(opc, 0x0C), do: fetch_byte(), else: 0xFF),
-            m,
+            t1,
             o2,
             o3,
             o4,
@@ -1834,25 +1840,13 @@ defmodule Zorb.Interpreter do
         end
       end
 
-      m =
-        get_arg_mask(
-          I32.band(I32.shr_u(t1, 6), 3),
-          I32.band(I32.shr_u(t1, 4), 3),
-          I32.band(I32.shr_u(t1, 2), 3),
-          I32.band(t1, 3),
-          3,
-          3,
-          3,
-          3,
-          0
-        )
-
       if I32.eq(I32.band(b, 0x20), 0) do
+        # bit 5 is 0 -> 2OP opcode in Variable form
         o1 =
           if(I32.eq(opc, 4) or I32.eq(opc, 5) or I32.eq(opc, 13),
             do:
               if(I32.eq(I32.band(I32.shr_u(t1, 6), 3), 2),
-                do: read_variable_peek(fetch_byte()),
+                do: read_variable(fetch_byte()),
                 else: fetch_var_ref_operand(I32.band(I32.shr_u(t1, 6), 3))
               ),
             else: fetch_var_operand(I32.band(I32.shr_u(t1, 6), 3))
@@ -1869,7 +1863,20 @@ defmodule Zorb.Interpreter do
       o2 = fetch_var_operand(I32.band(I32.shr_u(t1, 4), 3))
       o3 = fetch_var_operand(I32.band(I32.shr_u(t1, 2), 3))
       o4 = fetch_var_operand(I32.band(t1, 3))
-      execute_var(opc, m, o1, o2, o3, o4)
+
+      if I32.eq(I32.band(b, 0x20), 0) do
+        # bit 5 is 0 -> 2OP opcode in Variable form
+        if I32.eq(opc, 0x01) do
+          execute_je(o1, o2, o3, o4, t1)
+          return()
+        end
+
+        execute_2op(opc, o1, o2)
+        return()
+      end
+
+      # bit 5 is 1 -> VAR opcode
+      execute_var(opc, t1, o1, o2, o3, o4)
       return()
     end
 
@@ -1896,7 +1903,7 @@ defmodule Zorb.Interpreter do
           if(I32.eq(opc, 5) or I32.eq(opc, 6) or I32.eq(opc, 14),
             do:
               if(I32.eq(t1, 2),
-                do: read_variable_peek(fetch_byte()),
+                do: read_variable(fetch_byte()),
                 else: fetch_var_ref_operand(t1)
               ),
             else: fetch_operand(t1)
@@ -1910,18 +1917,11 @@ defmodule Zorb.Interpreter do
       return()
     end
 
-    # Short form 2OP
+    # Long form 2OP
     opc = I32.band(b, 31)
-
-    if I32.or(I32.eq(opc, 4), I32.or(I32.eq(opc, 5), I32.eq(opc, 13))) do
-      o1 = fetch_byte()
-      o2 = if I32.band(b, 0x20), do: read_variable(fetch_byte()), else: fetch_byte()
-      execute_2op(opc, o1, o2)
-    else
-      o1 = if I32.band(b, 0x40), do: read_variable(fetch_byte()), else: fetch_byte()
-      o2 = if I32.band(b, 0x20), do: read_variable(fetch_byte()), else: fetch_byte()
-      execute_2op(opc, o1, o2)
-    end
+    o1 = if I32.band(b, 0x40), do: read_variable(fetch_byte()), else: fetch_byte()
+    o2 = if I32.band(b, 0x20), do: read_variable(fetch_byte()), else: fetch_byte()
+    execute_2op(opc, o1, o2)
   end
 
   defw run_steps(max: I32) do
