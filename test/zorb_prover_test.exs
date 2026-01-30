@@ -40,6 +40,8 @@ defmodule Zorb.ProverTest do
 
     task = Task.async(fn -> Runner.run(prover_path, owner) end)
 
+    dispute("incorrect")
+
     expect("Strict Z Test", 5000, task.pid)
     expect("Would you like to make a transcript of the test results? (Y/N)", 5000, task.pid)
     answer_on("Transcript? (Y/N)", "N", task_pid: task.pid)
