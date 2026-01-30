@@ -20,3 +20,13 @@
 - Integration tests use a non-blocking `Runner` with an asynchronous input buffer.
 - Use `Expect.expect(pattern, timeout, task_pid)` to verify output.
 - Use `Expect.dispute(pattern)` to fail early on known error strings (e.g., "ERROR").
+
+## Knowledge Base
+
+### Metaprogramming Elixir (Chris McCord)
+Key takeaways for refactoring Zorb:
+- **AST Manipulation**: Elixir represents code as tuples `({func, meta, args})`. We can walk and transform this AST to generate boilerplate (like opcode dispatch).
+- **Macro Hygiene**: Use `var!` to access variables from the caller's context, but be careful with scope. Unhygienic variables can be useful for DSLs but should be used sparingly.
+- **Compile-time Hooks**: Use `@before_compile` to aggregate data (like a list of opcodes) and generate final dispatch functions just before the module is finished compiling.
+- **DSL Design**: Start with a Minimum Viable API. For opcodes, a declarative `defopcode` macro can hide the complexity of bitmasking and PC management.
+- **Avoid Over-Metaprogramming**: Only use macros when they significantly reduce boilerplate or improve expressiveness. For Zorb, opcode dispatch is a prime candidate.
