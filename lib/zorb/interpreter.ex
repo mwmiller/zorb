@@ -1856,6 +1856,15 @@ defmodule Zorb.Interpreter do
 
       if I32.eq(I32.band(b, 0x20), 0) do
         # bit 5 is 0 -> 2OP opcode in Variable form
+        if I32.eq(opc, 0x01) do
+          o1 = fetch_var_operand(I32.band(I32.shr_u(t1, 6), 3))
+          o2 = fetch_var_operand(I32.band(I32.shr_u(t1, 4), 3))
+          o3 = fetch_var_operand(I32.band(I32.shr_u(t1, 2), 3))
+          o4 = fetch_var_operand(I32.band(t1, 3))
+          execute_je(o1, o2, o3, o4, t1)
+          return()
+        end
+
         o1 =
           if(I32.eq(opc, 4) or I32.eq(opc, 5) or I32.eq(opc, 13),
             do:
