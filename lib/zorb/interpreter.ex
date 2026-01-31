@@ -449,7 +449,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw execute_je(a: I32, b: I32, c: I32, d: I32, mask: I32), count: I32 do
-    count = count_args_from_mask(mask)
+    count = calculate_arg_count_generic(mask)
 
     if I32.ge_u(count, 2) do
       if I32.eq(a, b) do
@@ -602,13 +602,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x19) do
       # call_2s
-      do_call(unpack_address(o1), fetch_byte(), 0x7F, o2, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), fetch_byte(), 1, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
     if I32.eq(opc, 0x1A) do
       # call_2n
-      do_call(unpack_address(o1), 0xFF, 0x7F, o2, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
@@ -657,7 +657,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x08) do
-      do_call(unpack_address(o1), fetch_byte(), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), fetch_byte(), 0, 0, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
@@ -697,7 +697,7 @@ defmodule Zorb.Interpreter do
         fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
       else
         # call_1n
-        do_call(unpack_address(o1), 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0)
+        do_call(unpack_address(o1), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0)
       end
 
       return()
@@ -752,9 +752,9 @@ defmodule Zorb.Interpreter do
     halt(3, @pc, opc)
   end
 
-  defw execute_var(opc: I32, mask: I32, o1: I32, o2: I32, o3: I32, o4: I32), val: I32 do
+  defw execute_var(opc: I32, mask: I32, t2: I32, o1: I32, o2: I32, o3: I32, o4: I32, o5: I32, o6: I32, o7: I32, o8: I32), val: I32 do
     if I32.eq(opc, I32.const(0x00)) do
-      do_call(unpack_address(o1), fetch_byte(), mask, o2, o3, o4, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), fetch_byte(), calculate_arg_count2(mask, t2), o2, o3, o4, o5, o6, o7, o8, 0)
       return()
     end
 
@@ -825,7 +825,7 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x0C) do
       # call_vs2
-      do_call(unpack_address(o1), fetch_byte(), mask, o2, o3, o4, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), fetch_byte(), calculate_arg_count2(mask, t2), o2, o3, o4, o5, o6, o7, o8, 0)
       return()
     end
 
@@ -863,13 +863,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x19) do
       # call_vn
-      do_call(unpack_address(o1), 0xFF, mask, o2, o3, o4, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), 0xFF, calculate_arg_count2(mask, t2), o2, o3, o4, o5, o6, o7, o8, 0)
       return()
     end
 
     if I32.eq(opc, 0x1A) do
       # call_vn2
-      do_call(unpack_address(o1), 0xFF, mask, o2, o3, o4, 0, 0, 0, 0, 0)
+      do_call(unpack_address(o1), 0xFF, calculate_arg_count2(mask, t2), o2, o3, o4, o5, o6, o7, o8, 0)
       return()
     end
 
@@ -895,7 +895,8 @@ defmodule Zorb.Interpreter do
       if I32.eq(o1, 0) do
         fetch_branch(1)
       else
-        val = count_args_from_mask(I32.shr_u(read_call_stack(I32.add(@fp, 2)), 8))
+        # Read count directly from stack (bits 8-15)
+        val = I32.shr_u(read_call_stack(I32.add(@fp, 2)), 8)
         fetch_branch(I32.ge_u(val, o1))
       end
 
@@ -1560,23 +1561,40 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defwp count_args_from_mask(m: I32), I32, c: I32 do
+  defwp calculate_arg_count_generic(mask: I32), I32, c: I32 do
     c = 0
-    if I32.ne(I32.band(I32.shr_u(m, 14), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(I32.shr_u(m, 12), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(I32.shr_u(m, 10), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(I32.shr_u(m, 8), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(I32.shr_u(m, 6), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(I32.shr_u(m, 4), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(I32.shr_u(m, 2), 3), 3), do: c = I32.add(c, 1)
-    if I32.ne(I32.band(m, 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(mask, 6), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(mask, 4), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(mask, 2), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(mask, 3), 3), do: c = I32.add(c, 1)
+    c
+  end
+
+  defwp calculate_arg_count(mask: I32), I32, c: I32 do
+    c = 0
+    # Bits 5:4 (Arg 1)
+    if I32.ne(I32.band(I32.shr_u(mask, 4), 3), 3), do: c = I32.add(c, 1)
+    # Bits 3:2 (Arg 2)
+    if I32.ne(I32.band(I32.shr_u(mask, 2), 3), 3), do: c = I32.add(c, 1)
+    # Bits 1:0 (Arg 3)
+    if I32.ne(I32.band(mask, 3), 3), do: c = I32.add(c, 1)
+    c
+  end
+
+  defwp calculate_arg_count2(m1: I32, m2: I32), I32, c: I32 do
+    c = calculate_arg_count(m1)
+    # m2: Args 4-7
+    if I32.ne(I32.band(I32.shr_u(m2, 6), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m2, 4), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(I32.shr_u(m2, 2), 3), 3), do: c = I32.add(c, 1)
+    if I32.ne(I32.band(m2, 3), 3), do: c = I32.add(c, 1)
     c
   end
 
   defw do_call(
          addr: T.PackedAddress,
          res: T.Variable,
-         mask: I32,
+         count: I32,
          a1: I32,
          a2: I32,
          a3: I32,
@@ -1595,12 +1613,14 @@ defmodule Zorb.Interpreter do
     )
 
     lc = read_byte(addr)
-    ac = count_args_from_mask(mask)
+    # Count is passed directly
+    ac = count
     ofp = @fp
     @fp = @csp
     push_call_stack(I32.band(@pc, 0xFFFF))
     push_call_stack(I32.shr_u(@pc, 16))
-    push_call_stack(I32.or(I32.shl(mask, 8), res))
+    # Store count instead of mask
+    push_call_stack(I32.or(I32.shl(count, 8), res))
     push_call_stack(ofp)
     @pc = I32.add(addr, 1)
     i = 0
@@ -1839,7 +1859,7 @@ defmodule Zorb.Interpreter do
           do_call(
             unpack_address(o1),
             if(I32.eq(opc, 0x0C), do: fetch_byte(), else: 0xFF),
-            t1,
+            calculate_arg_count2(t1, t2),
             o2,
             o3,
             o4,
@@ -1899,7 +1919,18 @@ defmodule Zorb.Interpreter do
       end
 
       # bit 5 is 1 -> VAR opcode
-      execute_var(opc, t1, o1, o2, o3, o4)
+      t2 = 0xFF
+      if I32.or(I32.eq(opc, 0x00), I32.eq(opc, 0x19)) do
+        # We need t2 only for call_vs/vn if we want to be safe, but actually Spec says
+        # call_vs (VAR:0) can have 4-8 operands.
+        # However, the opcode encoding bit 5=1 (VAR) only provides 1 type byte initially.
+        # Extended VAR opcodes (like call_vs2) can have 2.
+        # BUT, standard call_vs (VAR:0) can also have 2 bytes if more than 4 operands are given?
+        # No, Spec 4.4.3: "Double variable opcodes (0x0C and 0x1A) ... have 2 type bytes."
+        # Standard VAR opcodes (like call_vs) have only 1.
+        # So call_vs can only have 3 arguments (Op1 routine + 3 args).
+      end
+      execute_var(opc, t1, t2, o1, o2, o3, o4, o5, o6, o7, o8)
       return()
     end
 
