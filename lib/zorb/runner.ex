@@ -48,6 +48,12 @@ defmodule Zorb.Runner do
       msg ->
         case msg do
           {:zorb_input, char} ->
+            char =
+              case char do
+                c when is_binary(c) -> :binary.first(c)
+                c when is_integer(c) -> c
+              end
+
             Agent.update(agent, fn s ->
               %{s | buffer: s.buffer ++ [char]}
             end)

@@ -1,19 +1,19 @@
-# Handoff - January 31, 2026 (Session 2)
+# Handoff - January 31, 2026 (Final Session)
 
 ## Current Status
-Significant progress in multi-version testing and fixture consolidation. CZECH (V5) remains at 100% core compliance.
+Broadened test coverage with Z1-Z7 fixtures. CZECH (V5) and Unicode (V5) are passing. Input handling has been refined for V1-V4 compatibility.
 
 ### Improvements & Fixes
-- **Fixture Consolidation**: All test stories (Z1, Z2, Z3, Z5, Z6, Z7) are now located in `test/fixtures/provers`. Corrupted `czech.z3` was removed.
-- **V3 Integration**: `zil_test.z3` is now part of the integration suite. It successfully initializes and reaches the "TESTING LAB" prompt.
-- **Input Handling**: Refined `read_input` (sread) to handle V1-4 lowercase conversion and buffer limits.
-- **Object Stability**: Reverted experimental `skip_name` changes that caused regressions in CZECH V5. The engine is back to a known-good state for property navigation.
+- **Input Robustness**: `read_input` (sread) now correctly terminates on character code 13 (CR) using a WASM `Control.block` break. It also handles V1-V4 lowercase conversion and buffer limits.
+- **Runner Input Safety**: `Zorb.Runner` now ensures input from tests is correctly converted to integer bytes before being buffered.
+- **Fixture Expansion**: Added `zork1.z1`, `zork1.z2`, `zil_test.z3`, `amfv.z4`, `simple_test.z6`, and `simple_test.z7` to `test/fixtures/provers`.
+- **StrictZ Strategy**: Updated `strictz.z5` test to use uppercase "N" for the transcript prompt, aligning with common Inform 6 behavior.
 
 ### Blockers / Pending Issues
-1. **Timeout in V3/V5 Provers**: `zil_test.z3` and `strictz.z5` are timing out. This is likely due to the `read_input` loop not receiving the exact termination signal (CR) or the test runner not sending "quit" at the correct synchronization point.
-2. **skip_name Logic**: The current `skip_name` implementation assumes a length-prefixed word count, which is technically incorrect for Z-encoded names but currently works for the test suite. A proper Z-string bit-check implementation is needed but must be carefully validated against all versions.
+1. **Timeouts**: `zil_test.z3` and `strictz.z5` are still timing out in the test suite despite reaching their respective prompts. This suggests an issue with the final "quit" command or task termination synchronization.
+2. **skip_name Accuracy**: Currently using a simplified word-count skip. Needs replacement with a bit-scanning Z-string skipper once V5 stability is guaranteed across all object-heavy tests.
 
 ### Next Steps
-- Fix the `Task.await` timeouts by improving the `Runner` message loop and `read_input` synchronization.
-- Implement a version-aware `skip_name` that correctly detects the Z-string end-bit (0x8000).
-- Add tests for V1 and V2 using the newly acquired `zork1.z1` and `zork1.z2` fixtures.
+- Resolve the `Task.await` synchronization in the integration suite.
+- Expand `zorb_prover_test.exs` to cover the new V1, V2, V6, and V7 fixtures.
+- Consolidate ZSCII/Unicode conversion logic into a dedicated WASM module.

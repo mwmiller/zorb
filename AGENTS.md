@@ -1,32 +1,27 @@
 # Agent Guidelines - Zorb Project
 
-## Current Status (January 31, 2026)
-- **CZECH (V5)**: Core logic is passing. Summary: "Passed: 406, Failed: 0."
-- **Indirect Opcodes**: Successfully implemented correct SP handling (Spec 14.3) for `load`, `store`, `inc`, `dec`, `inc_chk`, `dec_chk`, and `pull`.
+## Current Status (January 31, 2026 - Final)
+- **CZECH (V5)**: Core logic is passing (406/425).
 - **Unicode**: `unicode.z5` integration is passing.
-- **V3 Support**: Added `czech.z3` integration; memory increased and stack moved to accommodate larger V3/V5 story files.
-- **Blocked**: `strictz.z5` is currently timing out on input prompts.
+- **Input**: `read_input` fixed to terminate on CR and handle V1-4 lowercase.
+- **Fixtures**: Full set of Z1-Z7 provers/test-files available in `test/fixtures/provers`.
+- **Blocked**: `strictz.z5` and `zil_test.z3` reaching prompts but failing to terminate gracefully in tests (timeout).
 
 ## Priorities
-1. **Priority 0: Stabilize `CZECH` V3 and V5.**
-   - Ensure `czech.z3` and `czech.z5` pass reliably in CI.
-   - Investigate why `czech.z3` output matching is brittle.
-
-2. **Priority 1: Pass `StrictZ`.**
-   - Resolve terminal/input synchronization issues causing timeouts.
-   - Address any functional failures reported by `strictz.z5` (e.g., `get_next_prop`).
-
-3. **Priority 2: Opcode DSL Refactor.**
-   - Recover the `defopcode` refactor from the `refactor/opcode-dispatch-and-core-logic` stash.
-   - Transition from manual `if/else` dispatch to declarative "Delegated Dispatch" to improve maintainability.
+1. **Priority 0: Fix Test Synchronization.**
+   - Ensure tests that reach "quit" or "completed" actually terminate without timing out `Task.await`.
+2. **Priority 1: Multi-Version Coverage.**
+   - Enable and pass integration tests for the new Z1, Z2, Z3, Z6, and Z7 fixtures.
+3. **Priority 2: Specification Refinement.**
+   - Implement bit-accurate `skip_name` per Spec 3.2.
+   - Refactor `Zorb.Interpreter` into version-specialized modules.
 
 ## Absolute Mandates
-- **No New Features**: Do not implement meta-commands, sound, or advanced UI until Priority 0 and 1 are achieved.
-- **WASM Scoping**: Remember that Elixir assignments inside Orb `if` blocks do NOT set WASM locals. Use `if/else` returns or helper functions.
-- **PC Alignment**: Every instruction MUST consume exactly the number of operand bytes specified by its type prefix.
-- **Variable References (Spec 14.3)**: Indirect opcodes must handle Variable 0 (SP) as peek/replace, NOT pop/push.
+- **No New Features**: No UI or sound until core Z1-Z8 compliance is achieved.
+- **WASM Control Flow**: Use `Control.block` and `*.break()` for loop termination in Orb DSL.
+- **Variable References**: Opcodes taking variable indices must follow Spec 14.3 (Variable 0 = peek/replace).
 
 ## Testing
 - Run integration tests with: `mix test test/zorb_prover_test.exs`
-- Use `Expect.expect(pattern, timeout, task_pid)` to verify output.
-- Use `Expect.dispute(pattern)` to fail early on known error strings.
+- Use `Expect.expect(pattern, timeout, task_pid)` for output verification.
+- Use `answer(pid, text)` for direct input injection.

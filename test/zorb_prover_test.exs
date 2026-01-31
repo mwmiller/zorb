@@ -57,8 +57,10 @@ defmodule Zorb.ProverTest do
     dispute("incorrect")
 
     expect("Strict Z Test", 5000, task.pid)
-    # Wait for the full prompt including (Y/N)
-    answer_on("(Y/N)", "n", task_pid: task.pid, add_newline: false)
+    # StrictZ asks about transcript. It uses read_char.
+    # We wait for the prompt then send 'N'
+    expect("(Y/N)", 5000, task.pid)
+    answer(task.pid, "N")
 
     expect("Test completed!", 60_000, task.pid)
 

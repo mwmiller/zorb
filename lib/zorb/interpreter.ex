@@ -1762,23 +1762,27 @@ defmodule Zorb.Interpreter do
     st = if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
     i = 0
 
-    loop ILoop do
-      if I32.lt_u(i, max) do
-        char = unicode_to_zscii(ZIO.read_char())
+    Control.block ILoopBlock do
+      loop ILoop do
+        if I32.lt_u(i, max) do
+          char = unicode_to_zscii(ZIO.read_char())
 
-        if I32.ne(char, 13) do
-          # V1-4 lowercase conversion
-          if I32.lt_u(@version, 5) do
-            if I32.ge_u(char, I32.const(65)) do
-              if I32.le_u(char, I32.const(90)) do
-                char = I32.add(char, I32.const(32))
+          if I32.ne(char, 13) do
+            # V1-4 lowercase conversion
+            if I32.lt_u(@version, 5) do
+              if I32.ge_u(char, I32.const(65)) do
+                if I32.le_u(char, I32.const(90)) do
+                  char = I32.add(char, I32.const(32))
+                end
               end
             end
-          end
 
-          write_byte(I32.add(I32.add(buf, st), i), char)
-          i = I32.add(i, 1)
-          ILoop.continue()
+            write_byte(I32.add(I32.add(buf, st), i), char)
+            i = I32.add(i, 1)
+            ILoop.continue()
+          else
+            ILoopBlock.break()
+          end
         end
       end
     end
