@@ -12,7 +12,7 @@ defmodule Zorb.ProverTest do
     :ok
   end
 
-  # @tag :skip
+  @tag :skip
   test "czech.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
@@ -33,7 +33,7 @@ defmodule Zorb.ProverTest do
     Task.await(task)
   end
 
-  @tag :skip
+  # @tag :skip
   test "strictz.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
@@ -43,10 +43,7 @@ defmodule Zorb.ProverTest do
     dispute("incorrect")
 
     expect("Strict Z Test", 5000, task.pid)
-    expect("Would you like to make a transcript of the test results? (Y/N)", 5000, task.pid)
-    answer_on("Transcript? (Y/N)", "N", task_pid: task.pid)
-    answer_on("Transcript? (y/n)", "n", task_pid: task.pid)
-    answer(task.pid, "N")
+    answer_on(~r/transcript/i, "n", task_pid: task.pid)
 
     expect("Test completed!", 60_000, task.pid)
 

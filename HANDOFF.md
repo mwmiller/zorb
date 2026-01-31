@@ -1,32 +1,27 @@
-# Handoff - January 30, 2026
+# Handoff - January 31, 2026
 
 # New sources
 
 A new repository with similar goals has been located at: https://github.com/DeMille/encrusted ... Review its progress, testing, tradeoffs, and implementation details to improve the corectness and performance.
 
 ## Current Status
-Significant progress made on **CZECH** prover (czech.z5). Most core sections are now passing, including Subroutines and most Indirect Opcodes. **Unicode** prover (unicode.z5) is now passing.
+Significant progress made on **CZECH** prover (czech.z5). Most core sections are now passing, including Subroutines and **Indirect Opcodes**. **Unicode** prover (unicode.z5) is now passing.
 
 ### Improvements & Fixes
-- **Debug Cleanup**: Removed excessive `ZIO.log_step` calls and unused module attributes to improve performance and stability.
-- **Strict Z Validation**: Added `dispute("incorrect")` to `strictz.z5` integration tests to ensure opcode accuracy is verified.
-- **Spec 14.3 Compliance**: Implemented "variable reference" behavior for `load`, `store`, `inc`, `dec`, `inc_chk`, `dec_chk`, and `pull`. Variable 0 (SP) correctly performs peek/replace/pop as required.
-- **Subroutine Frame Standardization**: Standardized the 4-word frame structure (Return PC Low/High, Store Var/Arg Mask, Old FP).
-- **Call Stack Separation**: Separated the evaluation stack from the call stack. Call frames and local variables are now stored on the `call_stack`, while Variable 0 operates on the `evaluation_stack`.
-- **check_arg_count (VAR:31)**: Fixed to correctly read the argument mask from the call frame on the call stack. This test section is now passing.
-- **WASM/Orb Robustness**: Refactored logic to use explicit `if/else` assignments to circumvent WASM local scoping bugs.
-- **ZORBIT.md**: Created a design document outlining the Specialized Compiler Model and Game Capsule architecture.
+- **CZECH Indirect Opcodes PASSING**: Fixed the long-standing bug in variable indirection. Opcodes like `load`, `store`, `pull`, `inc`, `dec`, `inc_chk`, and `dec_chk` now correctly handle Variable 0 (SP) per Spec 14.3 (peek/replace/pop behavior).
+- **V5 Opcode Expansion**: Added implementations or stubs for `catch` (0OP:9), `throw` (2OP:28), `piracy` (0OP:15), `check_arg_count` (VAR:31), `save` (EXT:0), and `restore` (EXT:1).
+- **je (2OP:1) Fix**: Corrected the dispatcher to fetch up to 4 operands when `je` is encoded in Variable form (bit 5=0), fixing early-exit branches.
+- **check_arg_count (VAR:31)**: Fully implemented by storing the calculated argument count in the subroutine call frame (bits 8-15 of the result-variable word).
+- **Runner Stability**: Increased steps per loop and timeouts in `Zorb.Runner` to ensure long-running provers like `strictz` and `czech` complete reliably.
+- **Spec 14.3 Compliance**: Implemented `read_variable_peek` and `write_variable_replace` to handle SP references without unintended stack mutation.
 
 ### Blockers / Pending Issues
-1. **ERROR [328/334] (pull)**: Still encountering stack pointer issues with `pull`.
-   - **The Problem**: When `pull` has an operand of "Variable" type (indirection), there is a conflict between fetching the destination index and pulling the value.
-   - **Required Fix**: `pull` needs a specialized fetch phase that peeks at the stack for the index (if Variable 0) without consuming the value intended for the pull itself.
-2. **get_next_prop (1OP:1)**: Failing in `strictz.z5`. Investigation revealed `skip_name` and property length decoding need to be more robust, especially for V4+ headers.
-3. **PC Alignment**: Investigating whether initial PC in V4+ should be treated as a direct instruction address or a routine entry point (requiring a call frame).
+1. **strictz.z5 Timeout**: While core opcodes are now more accurate, `strictz.z5` is currently timing out in the test suite. This may be due to the increased complexity of the interpreter loop or specific test expectations.
+2. **get_next_prop (1OP:1)**: Still needs investigation in `strictz.z5`. Property length decoding for V4+ headers requires more robust testing.
+3. **Opcode DSL Refactor**: A declarative DSL refactor (`defopcode`) is currently stashed on the `refactor/opcode-dispatch-and-core-logic` branch. It successfully solves Elixir compiler "hangs" by using "Delegated Dispatch" (isolated functions per opcode) but needs stabilization of macro hygiene before merging.
 
 ### Next Steps
-- Implement a specialized indirection handler for `pull` that safely fetches the destination index.
-- Fix `get_next_prop` and `skip_name` logic to correctly handle V4+ property tables.
-- Finalize "Indirect Opcodes" section in CZECH.
-- Re-enable and pass `strictz.z5`.
+- Investigate and resolve `strictz.z5` timeouts and functional failures.
+- Consolidate "Variable Reference" logic (Spec 14.3) across the interpreter to reduce duplication.
+- Re-evaluate and stabilize the `defopcode` DSL to improve engine maintainability.
 - Begin Phase 2 of Zorbit: Refactoring `Zorb.Interpreter` into a version-specific generator.

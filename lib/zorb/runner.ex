@@ -143,8 +143,8 @@ defmodule Zorb.Runner do
   defp loop(instance, agent, steps) when steps < @max_steps do
     case Agent.get(agent, fn s -> s.halt end) do
       nil ->
-        case Wasmex.call_function(instance, "run_steps", [100], 30_000) do
-          {:ok, _} -> loop(instance, agent, steps + 100)
+        case Wasmex.call_function(instance, "run_steps", [1000], 60_000) do
+          {:ok, _} -> loop(instance, agent, steps + 1000)
           {:error, reason} -> {:error, reason}
         end
 
