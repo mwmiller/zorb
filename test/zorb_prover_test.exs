@@ -12,7 +12,24 @@ defmodule Zorb.ProverTest do
     :ok
   end
 
-  @tag :skip
+  # @tag :skip
+  test "czech.z3 prover integration" do
+    prover_path = Path.join(@prover_dir, "czech.z3")
+    owner = self()
+
+    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+
+    dispute("ERROR")
+    dispute("bad")
+
+    expect(~r/CZECH:.*Z-machine Emulation CHecker/is, 5000, task.pid)
+    expect(~r/Passed: \d+, Failed: 0/, 60_000, task.pid)
+
+    answer(task.pid, "\n")
+    Task.await(task)
+  end
+
+  # @tag :skip
   test "czech.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
@@ -43,7 +60,8 @@ defmodule Zorb.ProverTest do
     dispute("incorrect")
 
     expect("Strict Z Test", 5000, task.pid)
-    answer_on(~r/transcript/i, "n", task_pid: task.pid)
+    # Wait for the full prompt including (Y/N)
+    answer_on("(Y/N)", "n", task_pid: task.pid, add_newline: false)
 
     expect("Test completed!", 60_000, task.pid)
 
@@ -53,7 +71,7 @@ defmodule Zorb.ProverTest do
     Task.await(task)
   end
 
-  @tag :skip
+  # @tag :skip
   test "unicode.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()

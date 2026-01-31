@@ -61,7 +61,7 @@ defmodule Zorb.Interpreter do
   alias Zorb.Interpreter.Types, as: T
   alias Zorb.Interpreter.ZIO
 
-  Memory.pages(13)
+  Memory.pages(16)
   alias Orb.I32
 
   # Default Unicode Translation Table (Spec 3.8.5.2) - 97 characters for ZSCII 155-251

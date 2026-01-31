@@ -26,8 +26,8 @@ defmodule Zorb.Runner do
     # Call load_story to set @story_len and fill memory
     {:ok, _} = Wasmex.call_function(instance, "load_story", [0, byte_size(story)])
 
-    # Init with stack at 0x90000 (safely above 512KB story limit)
-    {:ok, _} = Wasmex.call_function(instance, "init", [0x90000])
+    # Init with stack at 0xA0000 (safely above 512KB story limit)
+    {:ok, _} = Wasmex.call_function(instance, "init", [0xA0000])
 
     # Load default Unicode table at 0x80000
 
