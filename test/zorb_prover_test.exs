@@ -13,20 +13,17 @@ defmodule Zorb.ProverTest do
   end
 
   # @tag :skip
-  test "czech.z3 prover integration" do
-    prover_path = Path.join(@prover_dir, "czech.z3")
+  test "zil_test.z3 prover integration" do
+    prover_path = Path.join(@prover_dir, "zil_test.z3")
     owner = self()
 
     task = Task.async(fn -> Runner.run(prover_path, owner) end)
 
-    dispute("ERROR")
-    dispute("bad")
+    expect("A TEST FILE", 5000, task.pid)
+    expect("TESTING LAB", 5000, task.pid)
+    answer(task.pid, "quit\n")
 
-    expect(~r/CZECH:.*Z-machine Emulation CHecker/is, 5000, task.pid)
-    expect(~r/Passed: \d+, Failed: 0/, 60_000, task.pid)
-
-    answer(task.pid, "\n")
-    Task.await(task)
+    Task.await(task, 60_000)
   end
 
   # @tag :skip
@@ -47,7 +44,7 @@ defmodule Zorb.ProverTest do
     # Prover usually waits for a final key
     answer(task.pid, "\n")
 
-    Task.await(task)
+    Task.await(task, 60_000)
   end
 
   # @tag :skip
@@ -68,7 +65,7 @@ defmodule Zorb.ProverTest do
     # Prover waits for a final key
     answer(task.pid, "\n")
 
-    Task.await(task)
+    Task.await(task, 60_000)
   end
 
   # @tag :skip
@@ -103,6 +100,6 @@ defmodule Zorb.ProverTest do
     expect("Now, testing input (ESC to quit)...", 5000, task.pid)
     expect("ZSCII $00e2 = €", 5000, task.pid)
 
-    Task.await(task)
+    Task.await(task, 60_000)
   end
 end

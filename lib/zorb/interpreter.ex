@@ -675,6 +675,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x0A) do
+      # print_obj
       print_zstring(I32.add(get_prop_table_address(o1), 1))
       return()
     end
@@ -1753,6 +1754,11 @@ defmodule Zorb.Interpreter do
 
   defw read_input(buf: T.Address), I32, max: I32, i: I32, char: I32, st: I32 do
     max = read_byte(buf)
+    # In V1-3, max is actually max-1 because of the terminating 0.
+    if I32.lt_u(@version, 4) do
+      max = I32.sub(max, 1)
+    end
+
     st = if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
     i = 0
 
@@ -1761,9 +1767,12 @@ defmodule Zorb.Interpreter do
         char = unicode_to_zscii(ZIO.read_char())
 
         if I32.ne(char, 13) do
-          if I32.ge_u(char, I32.const(65)) do
-            if I32.le_u(char, I32.const(90)) do
-              char = I32.add(char, I32.const(32))
+          # V1-4 lowercase conversion
+          if I32.lt_u(@version, 5) do
+            if I32.ge_u(char, I32.const(65)) do
+              if I32.le_u(char, I32.const(90)) do
+                char = I32.add(char, I32.const(32))
+              end
             end
           end
 
