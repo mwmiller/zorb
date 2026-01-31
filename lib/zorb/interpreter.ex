@@ -895,7 +895,7 @@ defmodule Zorb.Interpreter do
       if I32.eq(o1, 0) do
         fetch_branch(1)
       else
-        # Read count directly from stack (bits 8-15)
+        # Read count directly from stack (bits 8-15 of word at FP + 2)
         val = I32.shr_u(read_call_stack(I32.add(@fp, 2)), 8)
         fetch_branch(I32.ge_u(val, o1))
       end
