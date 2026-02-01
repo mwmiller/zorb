@@ -13,6 +13,7 @@ Zorbit produces self-contained `.wasm` files that act as atomic units of distrib
 - **Story Embedding**: The original `.z3`/`.z5`/`.z8` story bytes are embedded directly into the WASM `data` section.
 - **Static Specialization**: Version-specific constants (e.g., object table entry sizes, packed address shifts) are baked in as literals during compilation using Elixir `unquote`.
 - **Narrative Manifests**: Social metadata and "Narrative Decoration" manifests (skins for the multiplayer layer) are stored within the binary's high-memory regions or Custom Sections.
+- **Explicit Exclusions**: **Version 6 is not supported.** V6 requires a coordinate-based canvas model and graphical asset management that would bloated the Game Capsule and compromise portability. Modern Z-machine usage is dominated by V5/V8, which Zorbit fully targets.
 
 ### 2. Compilation & Caching
 To ensure responsiveness, Zorbit employs a multi-tiered caching strategy:
