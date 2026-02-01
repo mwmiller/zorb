@@ -33,7 +33,7 @@ defmodule Zorb.TestSupport.Expect do
       {:zorb_output, char} ->
         # Real-time output for debugging
         # IO.puts("DEBUG zorb_output: #{char} ('#{List.to_string([char])}')")
-        IO.write(if char == ?\r, do: "\n", else: <<char::utf8>>)
+        # IO.write(if char == ?\r, do: "\n", else: <<char::utf8>>)
         new_buffer = buffer <> List.to_string([char])
 
         if char == ?\r do

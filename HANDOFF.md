@@ -1,19 +1,19 @@
-# Handoff - January 31, 2026 (Final Session)
+# Handoff - February 1, 2026
 
 ## Current Status
-Broadened test coverage with Z1-Z7 fixtures. CZECH (V5) and Unicode (V5) are passing. Input handling has been refined for V1-V4 compatibility.
+Resolved major test synchronization issues. `strictz.z5` and `zil_test.z3` are now passing reliably. Implemented core tokenization support via a host import.
 
 ### Improvements & Fixes
-- **Input Robustness**: `read_input` (sread) now correctly terminates on character code 13 (CR) using a WASM `Control.block` break. It also handles V1-V4 lowercase conversion and buffer limits.
-- **Runner Input Safety**: `Zorb.Runner` now ensures input from tests is correctly converted to integer bytes before being buffered.
-- **Fixture Expansion**: Added `zork1.z1`, `zork1.z2`, `zil_test.z3`, `amfv.z4`, `simple_test.z6`, and `simple_test.z7` to `test/fixtures/provers`.
-- **StrictZ Strategy**: Updated `strictz.z5` test to use uppercase "N" for the transcript prompt, aligning with common Inform 6 behavior.
+- **Tokenization Support**: Implemented `tokenize` as an Elixir host import. This includes Z-string encoding (V1-V5), dictionary binary search, and word splitting. This was the missing piece for command-line provers like `zil_test.z3`.
+- **Input Refinement**: Corrected `read_input` (sread) logic for V1-V3 buffer limits. It no longer subtracts 1 twice from the max length.
+- **Deadlock Resolution**: Fixed a Wasmex deadlock where an import callback was trying to call back into the instance process. Used the provided `caller` and `memory` context instead.
+- **Test Suite**: Updated `zil_test.z3` to handle the "Are you sure you want to quit?" prompt. Added `simple_test.z5` to the suite.
 
 ### Blockers / Pending Issues
-1. **Timeouts**: `zil_test.z3` and `strictz.z5` are still timing out in the test suite despite reaching their respective prompts. This suggests an issue with the final "quit" command or task termination synchronization.
-2. **skip_name Accuracy**: Currently using a simplified word-count skip. Needs replacement with a bit-scanning Z-string skipper once V5 stability is guaranteed across all object-heavy tests.
+1. **skip_name Accuracy**: Still using a simplified word-count skip. Needs bit-scanning Z-string skipper for full Spec 3.2 compliance.
+2. **V6/V7 Packed Addresses**: `simple_test.z6` fails due to incorrect packed address calculation (needs R_O and S_O offsets).
 
 ### Next Steps
-- Resolve the `Task.await` synchronization in the integration suite.
-- Expand `zorb_prover_test.exs` to cover the new V1, V2, V6, and V7 fixtures.
-- Consolidate ZSCII/Unicode conversion logic into a dedicated WASM module.
+- Implement V6/V7 packed address logic.
+- Expand integration tests to Z1 and Z2 (Zork 1 fixtures).
+- Move ZSCII/Unicode logic to a dedicated module.

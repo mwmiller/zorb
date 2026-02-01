@@ -52,6 +52,7 @@ defmodule Zorb.Interpreter.ZIO do
   defw(get_random_seed(), Orb.I32)
   defw(get_capabilities(), Orb.I32)
   defw(halt(reason: Orb.I32, pc: Orb.I32, opcode: Orb.I32))
+  defw(tokenize(text_addr: Orb.I32, parse_addr: Orb.I32, dict_addr: Orb.I32, flag: Orb.I32))
   defw(log_step(code: Orb.I32, val: Orb.I32))
 end
 
@@ -225,10 +226,12 @@ defmodule Zorb.Interpreter do
     @object_table_base 0
     @object_table_start 0
     @abbreviations_base 0
-    @alphabet_shift 0
+    @next_alphabet -1
     @abbrev_mode 0
     @recursion_depth 0
     @packed_address_shift 0
+    @routine_offset 0
+    @string_offset 0
     @stream3_table 0
     @stream3_active 0
     @object_entry_size 0
@@ -243,6 +246,7 @@ defmodule Zorb.Interpreter do
     @zscii_high 0
     @unicode_table_base 0
     @current_font 1
+    @current_alphabet 0
     @halted 0
   end
 
@@ -602,13 +606,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x19) do
       # call_2s
-      do_call(unpack_address(o1), fetch_byte(), 1, o2, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_routine_address(o1), fetch_byte(), 1, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
     if I32.eq(opc, 0x1A) do
       # call_2n
-      do_call(unpack_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_routine_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
@@ -665,7 +669,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x08) do
-      do_call(unpack_address(o1), fetch_byte(), 0, 0, 0, 0, 0, 0, 0, 0, 0)
+      do_call(unpack_routine_address(o1), fetch_byte(), 0, 0, 0, 0, 0, 0, 0, 0, 0)
       return()
     end
 
@@ -691,7 +695,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x0D) do
-      print_zstring(unpack_address(o1))
+      print_zstring(unpack_string_address(o1))
       return()
     end
 
@@ -706,7 +710,7 @@ defmodule Zorb.Interpreter do
         fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
       else
         # call_1n
-        do_call(unpack_address(o1), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        do_call(unpack_routine_address(o1), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0)
       end
 
       return()
@@ -792,9 +796,23 @@ defmodule Zorb.Interpreter do
          o8: I32
        ),
        val: I32 do
-    if I32.eq(opc, I32.const(0x00)) do
+    if I32.eq(opc, 0x1F) do
+      # check_arg_count
+      if I32.eq(o1, 0) do
+        fetch_branch(1)
+      else
+        # Read count directly from stack (bits 8-15 of word at FP + 2)
+        val = I32.shr_u(read_call_stack(I32.add(@fp, 2)), 8)
+        fetch_branch(I32.ge_u(val, o1))
+      end
+
+      return()
+    end
+
+    if I32.eq(opc, 0x00) do
+      # call_vs
       do_call(
-        unpack_address(o1),
+        unpack_routine_address(o1),
         fetch_byte(),
         calculate_arg_count2(mask, t2),
         o2,
@@ -878,7 +896,7 @@ defmodule Zorb.Interpreter do
     if I32.eq(opc, 0x0C) do
       # call_vs2
       do_call(
-        unpack_address(o1),
+        unpack_routine_address(o1),
         fetch_byte(),
         calculate_arg_count2(mask, t2),
         o2,
@@ -929,7 +947,7 @@ defmodule Zorb.Interpreter do
     if I32.eq(opc, 0x19) do
       # call_vn
       do_call(
-        unpack_address(o1),
+        unpack_routine_address(o1),
         0xFF,
         calculate_arg_count2(mask, t2),
         o2,
@@ -948,7 +966,7 @@ defmodule Zorb.Interpreter do
     if I32.eq(opc, 0x1A) do
       # call_vn2
       do_call(
-        unpack_address(o1),
+        unpack_routine_address(o1),
         0xFF,
         calculate_arg_count2(mask, t2),
         o2,
@@ -979,18 +997,6 @@ defmodule Zorb.Interpreter do
     if I32.eq(opc, 0x1E) do
       # print_table
       do_print_table(o1, o2, o3, o4)
-      return()
-    end
-
-    if I32.eq(opc, 0x1F) do
-      if I32.eq(o1, 0) do
-        fetch_branch(1)
-      else
-        # Read count directly from stack (bits 8-15 of word at FP + 2)
-        val = I32.shr_u(read_call_stack(I32.add(@fp, 2)), 8)
-        fetch_branch(I32.ge_u(val, o1))
-      end
-
       return()
     end
 
@@ -1176,8 +1182,24 @@ defmodule Zorb.Interpreter do
     end
   end
 
+  defw get_zstring_byte_length(addr: T.Address), I32, word: I32 do
+    loop ZLoop do
+      word = read_word(addr)
+      addr = I32.add(addr, 2)
+      ZLoop.continue(if: I32.eq(I32.band(word, 0x8000), 0))
+    end
+
+    addr
+  end
+
   defwp skip_name(name_addr: T.Address), T.Address do
-    I32.add(name_addr, I32.shl(read_byte(I32.sub(name_addr, 1)), 1))
+    if I32.eq(read_byte(I32.sub(name_addr, 1)), 0) do
+      # If length byte is 0, name is empty
+      return(name_addr)
+    end
+
+    # Bit-accurate scanning (Spec 3.2.1)
+    get_zstring_byte_length(name_addr)
   end
 
   defw get_prop_header_address(obj: T.Object, prop: T.Property), T.Address, addr: T.Address do
@@ -1313,7 +1335,93 @@ defmodule Zorb.Interpreter do
   # --- Unicode ---
   defw zscii_to_unicode(char: I32), I32, num: I32 do
     if I32.eq(@current_font, 3) do
+      # Box Drawings
+      # │
+      if I32.eq(char, 33), do: return(0x2502)
+      # ─
+      if I32.eq(char, 34), do: return(0x2500)
+      # ┌
+      if I32.eq(char, 35), do: return(0x250C)
+      # ┐
+      if I32.eq(char, 36), do: return(0x2510)
+      # └
+      if I32.eq(char, 37), do: return(0x2514)
+      # ┘
+      if I32.eq(char, 38), do: return(0x2518)
+      # ├
+      if I32.eq(char, 39), do: return(0x251C)
+      # ┤
+      if I32.eq(char, 40), do: return(0x2524)
+      # ┬
+      if I32.eq(char, 41), do: return(0x252C)
+      # ┴
+      if I32.eq(char, 42), do: return(0x2534)
+      # ┼
+      if I32.eq(char, 43), do: return(0x253C)
+
+      # Arrows
+      # ↑
+      if I32.eq(char, 44), do: return(0x2191)
+      # ↓
+      if I32.eq(char, 45), do: return(0x2193)
+      # ←
+      if I32.eq(char, 46), do: return(0x2190)
+      # →
+      if I32.eq(char, 47), do: return(0x2192)
+
+      # Runes (Anglian Futhorc)
+      # a ᚪ
       if I32.eq(char, 97), do: return(0x16AA)
+      # b ᛒ
+      if I32.eq(char, 98), do: return(0x16D2)
+      # c (eo) ᛇ
+      if I32.eq(char, 99), do: return(0x16C7)
+      # d ᛞ
+      if I32.eq(char, 100), do: return(0x16DE)
+      # e ᛖ
+      if I32.eq(char, 101), do: return(0x16D6)
+      # f ᚠ
+      if I32.eq(char, 102), do: return(0x16A0)
+      # g ᚷ
+      if I32.eq(char, 103), do: return(0x16B7)
+      # h ᚻ
+      if I32.eq(char, 104), do: return(0x16BB)
+      # i ᛁ
+      if I32.eq(char, 105), do: return(0x16C1)
+      # j ᛄ
+      if I32.eq(char, 106), do: return(0x16C4)
+      # k (other k) ᛢ
+      if I32.eq(char, 107), do: return(0x16E2)
+      # l ᛚ
+      if I32.eq(char, 108), do: return(0x16DA)
+      # m ᛗ
+      if I32.eq(char, 109), do: return(0x16D7)
+      # n ᚾ
+      if I32.eq(char, 110), do: return(0x16BE)
+      # o ᚩ
+      if I32.eq(char, 111), do: return(0x16A9)
+      # p ᛈ
+      if I32.eq(char, 112), do: return(0x16C8)
+      # q (k) ᚳ
+      if I32.eq(char, 113), do: return(0x16B3)
+      # r ᚱ
+      if I32.eq(char, 114), do: return(0x16B1)
+      # s ᛋ
+      if I32.eq(char, 115), do: return(0x16CB)
+      # t ᛏ
+      if I32.eq(char, 116), do: return(0x16CF)
+      # u ᚢ
+      if I32.eq(char, 117), do: return(0x16A2)
+      # v (ea) ᛪ
+      if I32.eq(char, 118), do: return(0x16EA)
+      # w ᚹ
+      if I32.eq(char, 119), do: return(0x16B9)
+      # x (z) ᛉ
+      if I32.eq(char, 120), do: return(0x16C9)
+      # y ᚣ
+      if I32.eq(char, 121), do: return(0x16A3)
+      # z (oe) ᛟ
+      if I32.eq(char, 122), do: return(0x16DF)
     end
 
     if(I32.lt_u(char, 155), do: return(char))
@@ -1402,12 +1510,13 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defw decode_zchar(zchar: T.ZChar), old_pc: T.Address do
+  defw decode_zchar(zchar: T.ZChar), alph: I32, old_pc: T.Address do
     if(I32.eq(@zscii_state, 1),
       do:
         (
           @zscii_high = zchar
           @zscii_state = 2
+          @next_alphabet = -1
           return()
         )
     )
@@ -1417,10 +1526,12 @@ defmodule Zorb.Interpreter do
         (
           print_char_wasm(zscii_to_unicode(I32.or(I32.shl(@zscii_high, 5), zchar)))
           @zscii_state = 0
+          @next_alphabet = -1
           return()
         )
     )
 
+    # Abbreviations
     if I32.gt_u(@abbrev_mode, 0) do
       old_pc = @pc
 
@@ -1436,7 +1547,8 @@ defmodule Zorb.Interpreter do
         )
 
       @abbrev_mode = 0
-      print_zstring(0)
+      @next_alphabet = -1
+      print_zstring(@pc)
       @pc = old_pc
       return()
     end
@@ -1445,75 +1557,138 @@ defmodule Zorb.Interpreter do
       do:
         (
           print_char_wasm(32)
-          @alphabet_shift = 0
+          @next_alphabet = -1
           return()
         )
     )
 
-    if I32.ge_u(zchar, I32.const(1)) do
-      if I32.le_u(zchar, I32.const(3)) do
-        @abbrev_mode = zchar
+    # V1 Newline
+    if I32.eq(@version, 1) do
+      if I32.eq(zchar, 1) do
+        print_char_wasm(13)
         return()
       end
     end
 
-    if(I32.eq(zchar, 4),
-      do:
-        (
-          @alphabet_shift = 1
-          return()
-        )
-    )
+    # V2+ Abbreviation markers (Spec 3.3)
+    if I32.ge_u(@version, 2) do
+      # V2 uses only char 1 (bank 0)
+      if I32.eq(zchar, 1) do
+        @abbrev_mode = 1
+        @next_alphabet = -1
+        return()
+      end
 
-    if(I32.eq(zchar, 5),
-      do:
-        (
-          @alphabet_shift = 2
+      # V3+ uses chars 1, 2, 3 (banks 0, 1, 2)
+      if I32.ge_u(@version, 3) do
+        if I32.or(I32.eq(zchar, 2), I32.eq(zchar, 3)) do
+          @abbrev_mode = zchar
+          @next_alphabet = -1
           return()
-        )
-    )
+        end
+      end
+    end
 
-    if I32.eq(@alphabet_shift, I32.const(2)) do
-      if I32.eq(zchar, I32.const(6)) do
-        @zscii_state = I32.const(1)
-        @alphabet_shift = I32.const(0)
+    # Shift characters
+    if I32.le_u(@version, 2) do
+      # V1/V2 relative shift/lock rules (Spec 3.2.2)
+      if I32.eq(zchar, 2) do
+        # next = (curr + 1) % 3
+        @next_alphabet = I32.rem_u(I32.add(@current_alphabet, 1), 3)
+        return()
+      end
+
+      if I32.eq(zchar, 3) do
+        # next = (curr - 1) % 3 -> (curr + 2) % 3
+        @next_alphabet = I32.rem_u(I32.add(@current_alphabet, 2), 3)
+        return()
+      end
+
+      if I32.eq(zchar, 4) do
+        # lock = (curr + 1) % 3
+        @current_alphabet = I32.rem_u(I32.add(@current_alphabet, 1), 3)
+        @next_alphabet = -1
+        return()
+      end
+
+      if I32.eq(zchar, 5) do
+        # lock = (curr + 2) % 3
+        @current_alphabet = I32.rem_u(I32.add(@current_alphabet, 2), 3)
+        @next_alphabet = -1
+        return()
+      end
+    else
+      # V3+ shift rules (Spec 3.2.3)
+      if I32.eq(zchar, 2) do
+        @abbrev_mode = 2
+        return()
+      end
+
+      if I32.eq(zchar, 3) do
+        @abbrev_mode = 3
+        return()
+      end
+
+      if I32.eq(zchar, 4) do
+        @next_alphabet = 1
+        return()
+      end
+
+      if I32.eq(zchar, 5) do
+        @next_alphabet = 2
         return()
       end
     end
 
-    if I32.ge_u(zchar, I32.const(6)) do
+    # Determine alphabet
+    alph = if(I32.ne(@next_alphabet, -1), do: @next_alphabet, else: @current_alphabet)
+
+    if I32.eq(alph, 2) do
+      if I32.ge_u(@version, 2) do
+        if I32.eq(zchar, 6) do
+          @zscii_state = 1
+          @next_alphabet = -1
+          return()
+        end
+      end
+    end
+
+    if I32.ge_u(zchar, 6) do
       print_char_wasm(
         zscii_to_unicode(
           read_byte(
             I32.add(
-              I32.const(0x81000),
-              I32.add(I32.mul(@alphabet_shift, I32.const(26)), I32.sub(zchar, I32.const(6)))
+              0x81000,
+              I32.add(I32.mul(alph, 26), I32.sub(zchar, 6))
             )
           )
         )
       )
-    end
 
-    @alphabet_shift = I32.const(0)
+      @next_alphabet = -1
+    end
   end
 
-  defw print_zstring(addr: T.Address), word: I32, done: I32, s_sh: I32 do
-    s_sh = @alphabet_shift
-    @alphabet_shift = I32.const(0)
-    @abbrev_mode = I32.const(0)
+  defw print_zstring(addr: T.Address), word: I32, done: I32, s_sh: I32, s_curr: I32 do
+    s_sh = @next_alphabet
+    s_curr = @current_alphabet
+    @next_alphabet = -1
+    @current_alphabet = 0
+    @abbrev_mode = 0
 
-    if I32.ne(addr, I32.const(0)) do
+    if I32.ne(addr, 0) do
       loop ALoop do
         word = read_word(addr)
-        addr = I32.add(addr, I32.const(2))
-        done = I32.band(word, I32.const(0x8000))
-        decode_zchar(I32.band(I32.shr_u(word, I32.const(10)), I32.const(31)))
-        decode_zchar(I32.band(I32.shr_u(word, I32.const(5)), I32.const(31)))
-        decode_zchar(I32.band(word, I32.const(31)))
-        ALoop.continue(if: I32.eq(done, I32.const(0)))
+        addr = I32.add(addr, 2)
+        done = I32.band(word, 0x8000)
+        decode_zchar(I32.band(I32.shr_u(word, 10), 31))
+        decode_zchar(I32.band(I32.shr_u(word, 5), 31))
+        decode_zchar(I32.band(word, 31))
+        ALoop.continue(if: I32.eq(done, 0))
       end
 
-      @alphabet_shift = s_sh
+      @next_alphabet = s_sh
+      @current_alphabet = s_curr
       return()
     end
 
@@ -1522,7 +1697,7 @@ defmodule Zorb.Interpreter do
     if(I32.gt_u(@recursion_depth, I32.const(2)),
       do:
         (
-          @alphabet_shift = s_sh
+          @next_alphabet = s_sh
           @recursion_depth = I32.sub(@recursion_depth, I32.const(1))
           return()
         )
@@ -1537,7 +1712,7 @@ defmodule Zorb.Interpreter do
       DLoop.continue(if: I32.eq(done, I32.const(0)))
     end
 
-    @alphabet_shift = s_sh
+    @next_alphabet = s_sh
     @abbrev_mode = I32.const(0)
     @recursion_depth = I32.sub(@recursion_depth, I32.const(1))
   end
@@ -1689,7 +1864,6 @@ defmodule Zorb.Interpreter do
         )
     )
 
-    lc = read_byte(addr)
     # Count is passed directly
     ac = count
     ofp = @fp
@@ -1699,7 +1873,10 @@ defmodule Zorb.Interpreter do
     # Store count instead of mask
     push_call_stack(I32.or(I32.shl(count, 8), res))
     push_call_stack(ofp)
+
+    lc = read_byte(addr)
     @pc = I32.add(addr, 1)
+
     i = 0
 
     loop LLoop do
@@ -1743,6 +1920,12 @@ defmodule Zorb.Interpreter do
   end
 
   defw do_return(v: I32), ofp: I32, rpc: T.Address, var: T.Variable do
+    if I32.eq(@fp, 0) do
+      @halted = 1
+      halt(0, @pc, 0)
+      return()
+    end
+
     @csp = @fp
     rpc = I32.or(read_call_stack(@fp), I32.shl(read_call_stack(I32.add(@fp, 1)), 16))
     var = I32.band(read_call_stack(I32.add(@fp, 2)), 0xFF)
@@ -1754,10 +1937,6 @@ defmodule Zorb.Interpreter do
 
   defw read_input(buf: T.Address), I32, max: I32, i: I32, char: I32, st: I32 do
     max = read_byte(buf)
-    # In V1-3, max is actually max-1 because of the terminating 0.
-    if I32.lt_u(@version, 4) do
-      max = I32.sub(max, 1)
-    end
 
     st = if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
     i = 0
@@ -1796,9 +1975,8 @@ defmodule Zorb.Interpreter do
   end
 
   defw do_tokenise(t: T.Address, p: T.Address, d: T.Address) do
-    if I32.ne(p, 0) do
-      write_byte(I32.add(p, 1), 0)
-    end
+    if I32.eq(d, 0), do: d = @dictionary_base
+    ZIO.tokenize(t, p, d, 0)
   end
 
   defw do_get_sibling(obj: T.Object), sib: T.Object do
@@ -1837,9 +2015,13 @@ defmodule Zorb.Interpreter do
   end
 
   defw do_set_font(f: I32), old: I32 do
-    old = @current_font
-    @current_font = f
-    fetch_result_and_store(old)
+    if I32.or(I32.eq(f, 1), I32.eq(f, 3)) do
+      old = @current_font
+      @current_font = f
+      fetch_result_and_store(old)
+    else
+      fetch_result_and_store(0)
+    end
   end
 
   defw do_copy_table(src: T.Address, dest: T.Address, len: I32), i: I32 do
@@ -1946,7 +2128,7 @@ defmodule Zorb.Interpreter do
           o8 = fetch_var_operand(I32.band(t2, 3))
 
           do_call(
-            unpack_address(o1),
+            unpack_routine_address(o1),
             if(I32.eq(opc, 0x0C), do: fetch_byte(), else: 0xFF),
             calculate_arg_count2(t1, t2),
             o2,
@@ -1964,7 +2146,7 @@ defmodule Zorb.Interpreter do
       end
 
       if I32.eq(I32.band(b, 0x20), 0) do
-        # bit 5 is 0 -> 2OP opcode in Variable form
+        # bit 5 is 0 -> 2OP opcode in Variable form (opc 0-31)
         if I32.eq(opc, 0x01) do
           o1 = fetch_var_operand(I32.band(I32.shr_u(t1, 6), 3))
           o2 = fetch_var_operand(I32.band(I32.shr_u(t1, 4), 3))
@@ -1991,24 +2173,17 @@ defmodule Zorb.Interpreter do
         return()
       end
 
-      # bit 5 is 1 -> VAR opcode
+      # bit 5 is 1 -> VAR opcode (opc 0-31)
       o1 = fetch_var_operand(I32.band(I32.shr_u(t1, 6), 3))
       o2 = fetch_var_operand(I32.band(I32.shr_u(t1, 4), 3))
       o3 = fetch_var_operand(I32.band(I32.shr_u(t1, 2), 3))
       o4 = fetch_var_operand(I32.band(t1, 3))
+      o5 = 0
+      o6 = 0
+      o7 = 0
+      o8 = 0
 
       t2 = 0xFF
-
-      if I32.or(I32.eq(opc, 0x00), I32.eq(opc, 0x19)) do
-        # We need t2 only for call_vs/vn if we want to be safe, but actually Spec says
-        # call_vs (VAR:0) can have 4-8 operands.
-        # However, the opcode encoding bit 5=1 (VAR) only provides 1 type byte initially.
-        # Extended VAR opcodes (like call_vs2) can have 2.
-        # BUT, standard call_vs (VAR:0) can also have 2 bytes if more than 4 operands are given?
-        # No, Spec 4.4.3: "Double variable opcodes (0x0C and 0x1A) ... have 2 type bytes."
-        # Standard VAR opcodes (like call_vs) have only 1.
-        # So call_vs can only have 3 arguments (Op1 routine + 3 args).
-      end
 
       execute_var(opc, t1, t2, o1, o2, o3, o4, o5, o6, o7, o8)
       return()
@@ -2028,11 +2203,11 @@ defmodule Zorb.Interpreter do
         end
       end
 
+      # Short form
       t1 = I32.band(I32.shr_u(b, 4), 3)
+      opc = I32.band(b, 0x0F)
 
       if I32.ne(t1, 3) do
-        opc = I32.band(b, 0x0F)
-
         o1 =
           if(I32.eq(opc, 5) or I32.eq(opc, 6) or I32.eq(opc, 14),
             do:
@@ -2047,7 +2222,7 @@ defmodule Zorb.Interpreter do
         return()
       end
 
-      execute_0op(I32.band(b, 0x0F))
+      execute_0op(opc)
       return()
     end
 
@@ -2088,13 +2263,16 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defw unpack_address(addr: T.PackedAddress), T.Address do
-    I32.shl(addr, @packed_address_shift)
+  defw unpack_routine_address(addr: T.PackedAddress), T.Address do
+    I32.add(I32.shl(addr, @packed_address_shift), @routine_offset)
+  end
+
+  defw unpack_string_address(addr: T.PackedAddress), T.Address do
+    I32.add(I32.shl(addr, @packed_address_shift), @string_offset)
   end
 
   defw init(st_off: T.Address), addr: T.Address do
     @version = read_byte(0)
-    if(I32.eq(@pc, 0), do: @pc = read_word(6))
     @globals_base = read_word(0x0C)
     @dictionary_base = read_word(0x08)
     @object_table_base = read_word(0x0A)
@@ -2104,9 +2282,130 @@ defmodule Zorb.Interpreter do
     @csp = 0
     @fp = 0
     @current_font = 1
+    @current_alphabet = 0
+    @next_alphabet = -1
     @capabilities = ZIO.get_capabilities()
 
-    if I32.ge_u(@version, I32.const(5)) do
+    if I32.ge_u(@version, 4) do
+      # Spec 11.1.2: Flags 2 at offset 0x10
+      # Bit 3: Font 3 available
+      # Bit 4: Timed input available
+      # Bit 5: Sound effects available
+      # Bit 7: Multiple windows available
+      write_word(0x10, I32.or(read_word(0x10), @capabilities))
+    end
+
+    if I32.eq(@version, 1) do
+      # V1 A2 alphabet (Spec 3.5.2)
+      # 0
+      Memory.store!(I32.U8, 0x81034, 48)
+      # 1
+      Memory.store!(I32.U8, 0x81035, 49)
+      # 2
+      Memory.store!(I32.U8, 0x81036, 50)
+      # 3
+      Memory.store!(I32.U8, 0x81037, 51)
+      # 4
+      Memory.store!(I32.U8, 0x81038, 52)
+      # 5
+      Memory.store!(I32.U8, 0x81039, 53)
+      # 6
+      Memory.store!(I32.U8, 0x8103A, 54)
+      # 7
+      Memory.store!(I32.U8, 0x8103B, 55)
+      # 8
+      Memory.store!(I32.U8, 0x8103C, 56)
+      # 9
+      Memory.store!(I32.U8, 0x8103D, 57)
+      # .
+      Memory.store!(I32.U8, 0x8103E, 46)
+      # ,
+      Memory.store!(I32.U8, 0x8103F, 44)
+      # !
+      Memory.store!(I32.U8, 0x81040, 33)
+      # ?
+      Memory.store!(I32.U8, 0x81041, 63)
+      # _
+      Memory.store!(I32.U8, 0x81042, 95)
+      # #
+      Memory.store!(I32.U8, 0x81043, 35)
+      # '
+      Memory.store!(I32.U8, 0x81044, 39)
+      # "
+      Memory.store!(I32.U8, 0x81045, 34)
+      # /
+      Memory.store!(I32.U8, 0x81046, 47)
+      # \
+      Memory.store!(I32.U8, 0x81047, 92)
+      # <
+      Memory.store!(I32.U8, 0x81048, 60)
+      # -
+      Memory.store!(I32.U8, 0x81049, 45)
+      # :
+      Memory.store!(I32.U8, 0x8104A, 58)
+      # (
+      Memory.store!(I32.U8, 0x8104B, 40)
+      # )
+      Memory.store!(I32.U8, 0x8104C, 41)
+      # space
+      Memory.store!(I32.U8, 0x8104D, 32)
+    else
+      # V2+ A2 alphabet: " \r0123456789.,!?_#'"/\\-:( )"
+      # space at index 0 (Z-char 6) - ignored by decode_zchar escape logic
+      Memory.store!(I32.U8, 0x81034, 32)
+      # \r at index 1 (Z-char 7)
+      Memory.store!(I32.U8, 0x81035, 13)
+      # 0
+      Memory.store!(I32.U8, 0x81036, 48)
+      # 1
+      Memory.store!(I32.U8, 0x81037, 49)
+      # 2
+      Memory.store!(I32.U8, 0x81038, 50)
+      # 3
+      Memory.store!(I32.U8, 0x81039, 51)
+      # 4
+      Memory.store!(I32.U8, 0x8103A, 52)
+      # 5
+      Memory.store!(I32.U8, 0x8103B, 53)
+      # 6
+      Memory.store!(I32.U8, 0x8103C, 54)
+      # 7
+      Memory.store!(I32.U8, 0x8103D, 55)
+      # 8
+      Memory.store!(I32.U8, 0x8103E, 56)
+      # 9
+      Memory.store!(I32.U8, 0x8103F, 57)
+      # .
+      Memory.store!(I32.U8, 0x81040, 46)
+      # ,
+      Memory.store!(I32.U8, 0x81041, 44)
+      # !
+      Memory.store!(I32.U8, 0x81042, 33)
+      # ?
+      Memory.store!(I32.U8, 0x81043, 63)
+      # _
+      Memory.store!(I32.U8, 0x81044, 95)
+      # #
+      Memory.store!(I32.U8, 0x81045, 35)
+      # '
+      Memory.store!(I32.U8, 0x81046, 39)
+      # "
+      Memory.store!(I32.U8, 0x81047, 34)
+      # /
+      Memory.store!(I32.U8, 0x81048, 47)
+      # \
+      Memory.store!(I32.U8, 0x81049, 92)
+      # -
+      Memory.store!(I32.U8, 0x8104A, 45)
+      # :
+      Memory.store!(I32.U8, 0x8104B, 58)
+      # (
+      Memory.store!(I32.U8, 0x8104C, 40)
+      # )
+      Memory.store!(I32.U8, 0x8104D, 41)
+    end
+
+    if I32.ge_u(@version, 5) do
       addr = read_word(I32.const(54))
 
       if I32.ne(addr, I32.const(0)) do
@@ -2120,6 +2419,11 @@ defmodule Zorb.Interpreter do
           end
         end
       end
+    end
+
+    if I32.eq(@version, 7) do
+      @routine_offset = I32.shl(read_word(0x28), 3)
+      @string_offset = I32.shl(read_word(0x2A), 3)
     end
 
     if I32.le_u(@version, 3),
@@ -2145,6 +2449,11 @@ defmodule Zorb.Interpreter do
         )
 
     if(I32.eq(@version, 8), do: @packed_address_shift = 3)
+
+    if I32.eq(@pc, 0) do
+      @pc = read_word(6)
+    end
+
     push_call_stack(0)
     push_call_stack(0)
     push_call_stack(0xFF)

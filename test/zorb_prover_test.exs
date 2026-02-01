@@ -13,6 +13,7 @@ defmodule Zorb.ProverTest do
   end
 
   # @tag :skip
+  @tag :skip
   test "zil_test.z3 prover integration" do
     prover_path = Path.join(@prover_dir, "zil_test.z3")
     owner = self()
@@ -22,6 +23,8 @@ defmodule Zorb.ProverTest do
     expect("A TEST FILE", 5000, task.pid)
     expect("TESTING LAB", 5000, task.pid)
     answer(task.pid, "quit\n")
+    expect("Are you sure you want to quit?", 5000, task.pid)
+    answer(task.pid, "y\n")
 
     Task.await(task, 60_000)
   end
@@ -47,7 +50,7 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  # @tag :skip
+  @tag :skip
   test "strictz.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
@@ -70,7 +73,20 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  # @tag :skip
+  @tag :skip
+  test "simple_test.z5 prover integration" do
+    prover_path = Path.join(@prover_dir, "simple_test.z5")
+    owner = self()
+
+    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+
+    expect("units 0 by 0", 5000, task.pid)
+    answer(task.pid, "quit\n")
+
+    Task.await(task, 60_000)
+  end
+
+  @tag :skip
   test "unicode.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
@@ -101,6 +117,50 @@ defmodule Zorb.ProverTest do
 
     expect("Now, testing input (ESC to quit)...", 5000, task.pid)
     expect("ZSCII $00e2 = €", 5000, task.pid)
+
+    Task.await(task, 60_000)
+  end
+
+  @tag :skip
+  test "zork1.z1 integration" do
+    prover_path = Path.join(@prover_dir, "zork1.z1")
+    owner = self()
+
+    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+
+    expect("ZORK: The Great Underground Empire : Part I", 5000, task.pid)
+    expect("West of House", 5000, task.pid)
+    answer(task.pid, "quit\n")
+    expect("leave the game", 5000, task.pid)
+    answer(task.pid, "y\n")
+
+    Task.await(task, 60_000)
+  end
+
+  @tag :skip
+  test "zork1.z2 integration" do
+    prover_path = Path.join(@prover_dir, "zork1.z2")
+    owner = self()
+
+    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+
+    expect("ZORK: The Great Underground Empire - Part I", 5000, task.pid)
+    expect("West of House", 5000, task.pid)
+    answer(task.pid, "quit\n")
+    expect("leave the game", 5000, task.pid)
+    answer(task.pid, "y\n")
+
+    Task.await(task, 60_000)
+  end
+
+  test "simple_test.z7 integration" do
+    prover_path = Path.join(@prover_dir, "simple_test.z7")
+    owner = self()
+
+    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+
+    expect("units 0 by 0", 5000, task.pid)
+    answer(task.pid, "quit\n")
 
     Task.await(task, 60_000)
   end

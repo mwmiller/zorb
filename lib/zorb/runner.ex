@@ -87,7 +87,8 @@ defmodule Zorb.Runner do
         "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
         "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
         "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
-        "log_step" => {:fn, [:i32, :i32], [], fn _ctx, _code, _val -> nil end}
+        "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], &Zorb.Tokeniser.tokenize/5},
+        "log_step" => {:fn, [:i32, :i32], [], fn _ctx, _pc, _b -> nil end}
       }
     }
   end
@@ -131,7 +132,8 @@ defmodule Zorb.Runner do
   end
 
   defp get_capabilities_impl do
-    fn _ctx -> 0 end
+    # Bit 3: Font 3 (character graphics) available
+    fn _ctx -> 0x08 end
   end
 
   defp halt_impl(agent) do

@@ -59,7 +59,7 @@ defmodule Zorb.InterpreterTest.Attributes do
         {:zio, :read_char, fn -> 0 end},
         {:zio, :get_random_seed, fn -> 12_345 end},
         {:zio, :get_capabilities, fn -> 0 end},
-        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :halt, fn reason, pc, opc -> IO.puts("HALT: #{reason} at #{pc} (op #{opc})") end},
         {:zio, :log_step, fn _, _ -> nil end}
       ])
 
@@ -102,9 +102,9 @@ defmodule Zorb.InterpreterTest.Attributes do
         :binary.copy(<<0>>, 64 - 16)
 
     # Prop Table for Obj 1 at 0x10
-    # 0 words of name (0x8000 terminates name immediately)
+    # 0 words of name
     # Prop 1: 1 byte data (0xAB)
-    prop_table = <<0x80, 0x00, 1, 0xAB, 0>>
+    prop_table = <<0, 1, 0xAB, 0>>
 
     code = <<
       # check 0x0F, 0x03 -> branch if true
@@ -135,7 +135,7 @@ defmodule Zorb.InterpreterTest.Attributes do
         {:zio, :read_char, fn -> 0 end},
         {:zio, :get_random_seed, fn -> 12_345 end},
         {:zio, :get_capabilities, fn -> 0 end},
-        {:zio, :halt, fn _, _, _ -> 0 end},
+        {:zio, :halt, fn reason, pc, opc -> IO.puts("HALT: #{reason} at #{pc} (op #{opc})") end},
         {:zio, :log_step, fn _, _ -> nil end}
       ])
 
@@ -155,9 +155,7 @@ defmodule Zorb.InterpreterTest.Attributes do
     Zorb.TestRuntime.call(inst, :step)
     assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0108
 
-    # 3. get_prop_addr 1, 1
-    Zorb.TestRuntime.call(inst, :step)
-    # Address should be 0x10 + 2 (name) + 1 (prop header) = 0x13 (19)
-    assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 19
+    # get_prop_addr 1, 1 -> G16
+    assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 18
   end
 end
