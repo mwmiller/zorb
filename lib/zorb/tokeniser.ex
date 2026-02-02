@@ -115,16 +115,21 @@ defmodule Zorb.Tokeniser do
     for w <- words, into: <<>>, do: <<w::16>>
   end
 
-  defp get_alphabets(_version) do
+  defp get_alphabets(version) do
     a0 = ~c"abcdefghijklmnopqrstuvwxyz"
     a1 = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    # A2 is same for all versions in dictionary (Spec 3.5.2)
-    a2 = ~c" \r0123456789.,!?_#'\"/\\-:( )"
 
-    {a0, a1, a2}
+    a2 =
+      case version do
+        1 -> ~c" 0123456789.,!?_#'\"/\\<-:()"
+        2 -> ~c" \r0123456789.,!?_#'\"/\\-:()"
+        _ -> ~c" 0123456789.,!?_#'\"/\\-:() "
+      end
+
+    [a0, a1, a2]
   end
 
-  defp match_char(c, version, curr_alph, {a0, a1, a2}, acc) do
+  defp match_char(c, version, curr_alph, [a0, a1, a2], acc) do
     cond do
       c in a0 ->
         idx = Enum.find_index(a0, &(&1 == c)) + 6

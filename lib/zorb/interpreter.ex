@@ -2544,6 +2544,19 @@ defmodule Zorb.Interpreter do
     @csp
   end
 
+  defp store_a2_alphabet(version) do
+    alphabet =
+      case version do
+        1 -> " 0123456789.,!?_#'\"/\\<-:()"
+        2 -> " \r0123456789.,!?_#'\"/\\-:()"
+        _ -> " 0123456789.,!?_#'\"/\\-:() "
+      end
+
+    for {char, i} <- Enum.with_index(String.to_charlist(alphabet)) do
+      quote do: Memory.store!(I32.U8, unquote(0x81034 + i), unquote(char))
+    end
+  end
+
   Memory.initial_data!(
     0x81000,
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ \r0123456789.,!?_#'\"/\\-:()"
