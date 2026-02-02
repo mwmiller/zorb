@@ -75,40 +75,48 @@ defmodule Zorb.Extractor do
     a1 = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     a2 =
-      if version == 1 do
-        ~c" \n0123456789.,!?_#'\"/\\-:( )"
-      else
-        ~c" \r0123456789.,!?_#'\"/\\-:( )"
+      case version do
+        1 -> ~c" 0123456789.,!?_#'\"/\\<-:()"
+        2 -> ~c" \r0123456789.,!?_#'\"/\\-:()"
+        _ -> ~c" 0123456789.,!?_#'\"/\\-:() "
       end
 
     alphabets = [a0, a1, a2]
 
     abbrev_base =
-      if data do
-        :binary.at(data, 0x18) <<< 8 ||| :binary.at(data, 0x19)
-      else
-        0
+      case data do
+        nil -> 0
+        _ -> :binary.at(data, 0x18) <<< 8 ||| :binary.at(data, 0x19)
       end
 
     {text, _, _, _} =
       Enum.reduce(zchars, {[], 0, -1, 0}, fn z, {acc, curr, next, abbrev_bank} ->
-        effective = if next != -1, do: next, else: curr
+        effective =
+          case next do
+            -1 -> curr
+            _ -> next
+          end
 
         cond do
           abbrev_bank > 0 ->
-            if data && abbrev_base > 0 do
-              # Abbrev address is a word address, so multiply by 2
-              entry_addr = abbrev_base + ((abbrev_bank - 1) * 32 + z) * 2
-              word_addr = :binary.at(data, entry_addr) <<< 8 ||| :binary.at(data, entry_addr + 1)
-              # Abbreviations are word addresses (Spec 1.2.2)
-              ptr = word_addr * 2
+            case {data, abbrev_base} do
+              {nil, _} ->
+                {acc ++ ~c"[ABBR]", curr, -1, 0}
 
-              # Simple recursive decode (avoid cycles for now)
-              {words, _} = collect_zwords(data, ptr)
-              expanded = decode_zstring_list(words, version, data)
-              {acc ++ String.to_charlist(expanded), curr, -1, 0}
-            else
-              {acc ++ ~c"[ABBR]", curr, -1, 0}
+              {_, 0} ->
+                {acc ++ ~c"[ABBR]", curr, -1, 0}
+
+              {_, _} ->
+                # Abbrev address is a word address, so multiply by 2
+                entry_addr = abbrev_base + ((abbrev_bank - 1) * 32 + z) * 2
+                word_addr = :binary.at(data, entry_addr) <<< 8 ||| :binary.at(data, entry_addr + 1)
+                # Abbreviations are word addresses (Spec 1.2.2)
+                ptr = word_addr * 2
+
+                # Simple recursive decode (avoid cycles for now)
+                {words, _} = collect_zwords(data, ptr)
+                expanded = decode_zstring_list(words, version, data)
+                {acc ++ String.to_charlist(expanded), curr, -1, 0}
             end
 
           z == 0 ->
@@ -151,43 +159,58 @@ defmodule Zorb.Extractor do
   end
 
   defp scan_strings(data, offset, version) do
-    if offset < byte_size(data) - 2 do
-      word = :binary.at(data, offset) <<< 8 ||| :binary.at(data, offset + 1)
+    case offset < byte_size(data) - 2 do
+      false ->
+        :ok
 
-      if plausible_start?(word) do
-        {words, end_offset} = collect_zwords(data, offset)
+      true ->
+        word = :binary.at(data, offset) <<< 8 ||| :binary.at(data, offset + 1)
 
-        if length(words) > 1 do
-          text = decode_zstring_list(words, version, data)
+        case plausible_start?(word) do
+          false ->
+            scan_strings(data, offset + 2, version)
 
-          if String.length(text) > 10 do
-            IO.puts("#{Integer.to_string(offset, 16)}: #{text}")
-          end
+          true ->
+            {words, end_offset} = collect_zwords(data, offset)
 
-          scan_strings(data, end_offset, version)
-        else
-          scan_strings(data, offset + 2, version)
+            case length(words) > 1 do
+              false ->
+                scan_strings(data, offset + 2, version)
+
+              true ->
+                text = decode_zstring_list(words, version, data)
+
+                case String.length(text) > 10 do
+                  true ->
+                    IO.puts("#{Integer.to_string(offset, 16)}: #{text}")
+                    scan_strings(data, end_offset, version)
+
+                  false ->
+                    scan_strings(data, offset + 2, version)
+                end
+            end
         end
-      else
-        scan_strings(data, offset + 2, version)
-      end
     end
   end
 
   defp plausible_start?(word), do: (word &&& 0x8000) == 0
 
   defp collect_zwords(data, offset) do
-    if offset >= byte_size(data) - 1 do
-      {[], offset}
-    else
-      word = :binary.at(data, offset) <<< 8 ||| :binary.at(data, offset + 1)
+    case offset >= byte_size(data) - 1 do
+      true ->
+        {[], offset}
 
-      if (word &&& 0x8000) != 0 do
-        {[word], offset + 2}
-      else
-        {rest, end_off} = collect_zwords(data, offset + 2)
-        {[word | rest], end_off}
-      end
+      false ->
+        word = :binary.at(data, offset) <<< 8 ||| :binary.at(data, offset + 1)
+
+        case (word &&& 0x8000) != 0 do
+          true ->
+            {[word], offset + 2}
+
+          false ->
+            {rest, end_off} = collect_zwords(data, offset + 2)
+            {[word | rest], end_off}
+        end
     end
   end
 

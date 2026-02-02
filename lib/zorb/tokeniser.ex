@@ -11,7 +11,12 @@ defmodule Zorb.Tokeniser do
     <<version>> = Wasmex.Memory.read_binary(caller, memory, 0, 1)
 
     # 2. Read text buffer
-    st = if version >= 5, do: 2, else: 1
+    st =
+      case version >= 5 do
+        true -> 2
+        false -> 1
+      end
+
     text_len = get_text_len(version, caller, memory, text_addr, st)
     text = Wasmex.Memory.read_binary(caller, memory, text_addr + st, text_len)
 
@@ -101,7 +106,12 @@ defmodule Zorb.Tokeniser do
           match_char(c, version, curr_alph, char_map, acc)
       end
 
-    num_zchars = if version <= 3, do: 6, else: 9
+    num_zchars =
+      case version <= 3 do
+        true -> 6
+        false -> 9
+      end
+
     zchars = Enum.take(zchars ++ [5, 5, 5, 5, 5, 5, 5, 5, 5], num_zchars)
 
     # Pack into 16-bit words
@@ -168,11 +178,13 @@ defmodule Zorb.Tokeniser do
 
       nil ->
         # ZSCII escape (unlikely for dictionary words but supported)
-        if version >= 2 do
-          {acc ++ [5, 6, c >>> 5, c &&& 0x1F], 0}
-        else
-          # '?' for V1 unknown
-          {acc ++ [63], 0}
+        case version >= 2 do
+          true ->
+            {acc ++ [5, 6, c >>> 5, c &&& 0x1F], 0}
+
+          false ->
+            # '?' for V1 unknown
+            {acc ++ [63], 0}
         end
     end
   end
@@ -252,26 +264,30 @@ defmodule Zorb.Tokeniser do
   end
 
   defp do_split(<<c, rest::binary>>, seps, offset, acc, current) do
-    cond do
-      c == 32 ->
+    is_sep = c in seps
+
+    case {c, is_sep} do
+      {32, _} ->
         new_acc =
-          if current == "",
-            do: acc,
-            else: [{current, offset - byte_size(current), byte_size(current)} | acc]
+          case current do
+            "" -> acc
+            _ -> [{current, offset - byte_size(current), byte_size(current)} | acc]
+          end
 
         do_split(rest, seps, offset + 1, new_acc, "")
 
-      c in seps ->
+      {_, true} ->
         new_acc =
-          if current == "",
-            do: acc,
-            else: [{current, offset - byte_size(current), byte_size(current)} | acc]
+          case current do
+            "" -> acc
+            _ -> [{current, offset - byte_size(current), byte_size(current)} | acc]
+          end
 
         sep_word = <<c>>
         new_acc = [{sep_word, offset, 1} | new_acc]
         do_split(rest, seps, offset + 1, new_acc, "")
 
-      true ->
+      {_, false} ->
         do_split(rest, seps, offset + 1, acc, current <> <<c>>)
     end
   end
