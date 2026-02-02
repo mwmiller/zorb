@@ -1510,7 +1510,7 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defw decode_zchar(zchar: T.ZChar), alph: I32, old_pc: T.Address do
+  defw decode_zchar(zchar: T.ZChar), alph: I32, pbase: I32, old_pc: T.Address do
     if(I32.eq(@zscii_state, 1),
       do:
         (
@@ -1653,13 +1653,16 @@ defmodule Zorb.Interpreter do
       end
     end
 
-    if I32.ge_u(zchar, 6) do
+    # This is the core fix: use pbase for offset calculation
+    pbase = if(I32.eq(@version, 1), do: I32.const(5), else: I32.const(6))
+
+    if I32.ge_u(zchar, pbase) do
       print_char_wasm(
         zscii_to_unicode(
           read_byte(
             I32.add(
               0x81000,
-              I32.add(I32.mul(alph, 26), I32.sub(zchar, 6))
+              I32.add(I32.mul(alph, 26), I32.sub(zchar, pbase))
             )
           )
         )

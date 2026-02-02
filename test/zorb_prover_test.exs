@@ -12,8 +12,6 @@ defmodule Zorb.ProverTest do
     :ok
   end
 
-  # @tag :skip
-  @tag :skip
   test "zil_test.z3 prover integration" do
     prover_path = Path.join(@prover_dir, "zil_test.z3")
     owner = self()
@@ -29,7 +27,6 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  # @tag :skip
   test "czech.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
@@ -50,7 +47,6 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  @tag :skip
   test "strictz.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
@@ -73,7 +69,6 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  @tag :skip
   test "simple_test.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "simple_test.z5")
     owner = self()
@@ -86,7 +81,6 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  @tag :skip
   test "unicode.z5 prover integration" do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
@@ -121,7 +115,6 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  @tag :skip
   test "zork1.z1 integration" do
     prover_path = Path.join(@prover_dir, "zork1.z1")
     owner = self()
@@ -137,7 +130,6 @@ defmodule Zorb.ProverTest do
     Task.await(task, 60_000)
   end
 
-  @tag :skip
   test "zork1.z2 integration" do
     prover_path = Path.join(@prover_dir, "zork1.z2")
     owner = self()

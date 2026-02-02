@@ -30,11 +30,8 @@ defmodule Zorb.Runner do
     {:ok, _} = Wasmex.call_function(instance, "init", [0xA0000])
 
     # Load default Unicode table at 0x80000
-
     default_unicode = Zorb.Interpreter.unicode_table()
-
     binary_table = for char <- default_unicode, into: <<>>, do: <<char::integer-size(16)>>
-
     Wasmex.Memory.write_binary(store, memory, 0x80000, binary_table)
 
     # Run the loop in a separate task so this process can receive input messages

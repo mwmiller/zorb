@@ -2,7 +2,6 @@ defmodule Zorb.InterpreterTest.Tokenise do
   use ExUnit.Case, async: true
   alias Zorb.Interpreter
 
-  # @tag :skip
   test "tokenise opcode" do
     # Header: version 3
     # 0x0E: Static memory base = 0x0800 (so everything below is writable)

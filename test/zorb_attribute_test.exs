@@ -94,7 +94,6 @@ defmodule Zorb.InterpreterTest.Attributes do
     assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0112
   end
 
-  @tag :skip
   test "property address calculation" do
     # V3, globals at 0x0200, object table at 0x0040
     header =

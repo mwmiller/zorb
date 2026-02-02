@@ -115,16 +115,11 @@ defmodule Zorb.Tokeniser do
     for w <- words, into: <<>>, do: <<w::16>>
   end
 
-  defp get_alphabets(version) do
+  defp get_alphabets(_version) do
     a0 = ~c"abcdefghijklmnopqrstuvwxyz"
     a1 = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-    a2 =
-      if version == 1 do
-        ~c"0123456789.,!?_#'\"/\\<-:() "
-      else
-        ~c" \r0123456789.,!?_#'\"/\\-:( )"
-      end
+    # A2 is same for all versions in dictionary (Spec 3.5.2)
+    a2 = ~c" \r0123456789.,!?_#'\"/\\-:( )"
 
     {a0, a1, a2}
   end
