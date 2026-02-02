@@ -6,8 +6,7 @@ defmodule Zorb.Extractor do
     data = File.read!(path)
     version = :binary.at(data, 0)
 
-    dict_addr = :binary.at(data, 8) <<< 8 ||| :binary.at(data, 9)
-    words = extract_dictionary(data, dict_addr, version)
+    words = dictionary(data)
 
     IO.puts("--- Dictionary (V#{version}) ---")
     Enum.each(words, &IO.puts/1)
@@ -18,6 +17,36 @@ defmodule Zorb.Extractor do
     scan_strings(data, static_base, version)
   end
 
+  def dictionary(data) do
+    version = :binary.at(data, 0)
+    dict_addr = :binary.at(data, 8) <<< 8 ||| :binary.at(data, 9)
+    extract_dictionary(data, dict_addr, version)
+  end
+
+  def collision_audit(data, reserved_commands \\ ["chat", "who", "me", "quit"]) do
+    words = dictionary(data)
+    prefixes = ["/", "~", "`", "!"]
+
+    # 1. Check for exact word collisions with reserved commands
+    collisions = Enum.filter(words, &(&1 in reserved_commands))
+
+    # 2. Check for prefix collisions
+    dict_addr = :binary.at(data, 8) <<< 8 ||| :binary.at(data, 9)
+    num_separators = :binary.at(data, dict_addr)
+    separators = :binary.part(data, dict_addr + 1, num_separators) |> String.to_charlist()
+
+    safe_prefix =
+      Enum.find(prefixes, fn prefix ->
+        p_char = hd(String.to_charlist(prefix))
+        not (p_char in separators or Enum.any?(words, &String.starts_with?(&1, prefix)))
+      end)
+
+    %{
+      word_collisions: collisions,
+      recommended_prefix: safe_prefix
+    }
+  end
+
   defp extract_dictionary(data, addr, version) do
     num_separators = :binary.at(data, addr)
     header_end = addr + 1 + num_separators
@@ -25,10 +54,16 @@ defmodule Zorb.Extractor do
     num_entries = :binary.at(data, header_end + 1) <<< 8 ||| :binary.at(data, header_end + 2)
     entries_start = header_end + 3
 
-    for i <- 0..(num_entries - 1) do
-      entry_addr = entries_start + i * entry_len
-      encoded = :binary.part(data, entry_addr, if(version <= 3, do: 4, else: 6))
-      decode_zstring(encoded, version)
+    case num_entries do
+      0 ->
+        []
+
+      n ->
+        for i <- 0..(n - 1) do
+          entry_addr = entries_start + i * entry_len
+          encoded = :binary.part(data, entry_addr, if(version <= 3, do: 4, else: 6))
+          decode_zstring(encoded, version)
+        end
     end
   end
 
