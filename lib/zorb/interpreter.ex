@@ -279,75 +279,72 @@ defmodule Zorb.Interpreter do
   end
 
   defwp fetch_var_ref_operand(type: I32), I32 do
-    if I32.eq(type, 0) do
-      fetch_word()
-    else
-      if I32.eq(type, 1) do
-        fetch_byte()
-      else
-        if I32.eq(type, 2) do
-          read_variable(fetch_byte())
-        else
-          I32.const(0)
-        end
-      end
+    case type do
+      0 -> fetch_word()
+      1 -> fetch_byte()
+      2 -> read_variable(fetch_byte())
+      _ -> I32.const(0)
     end
   end
 
   # --- Variable Access (Spec 14.3) ---
   defw read_variable(var: T.Variable), I32 do
-    if I32.eq(var, 0) do
-      pop_stack()
-    else
-      if I32.lt_u(var, 16) do
-        read_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))))
-      else
-        read_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)))
-      end
-    end
-  end
+    case var do
+      0 ->
+        pop_stack()
 
-  defw read_variable_peek(var: T.Variable), I32 do
-    if I32.eq(var, 0) do
-      peek_stack()
-    else
-      if I32.lt_u(var, 16) do
+      v when v < 16 ->
         read_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))))
-      else
+
+      _ ->
         read_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)))
-      end
     end
   end
 
   defw write_variable(var: T.Variable, val: I32) do
     val = I32.band(val, 0xFFFF)
 
-    if I32.eq(var, 0) do
-      push_stack(val)
-    else
-      if I32.lt_u(var, 16) do
+    case var do
+      0 ->
+        push_stack(val)
+
+      v when v < 16 ->
         write_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))), val)
-      else
+
+      _ ->
         write_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)), val)
-      end
+    end
+  end
+
+  defw read_variable_peek(var: T.Variable), I32 do
+    case var do
+      0 ->
+        peek_stack()
+
+      v when v < 16 ->
+        read_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))))
+
+      _ ->
+        read_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)))
     end
   end
 
   defw write_variable_replace(var: T.Variable, val: I32) do
     val = I32.band(val, 0xFFFF)
 
-    if I32.eq(var, 0) do
-      if I32.ne(@sp, 0) do
-        write_stack(I32.sub(@sp, 1), val)
-      else
-        push_stack(val)
-      end
-    else
-      if I32.lt_u(var, 16) do
+    case var do
+      0 ->
+        if I32.ne(@sp, 0) do
+          write_stack(I32.sub(@sp, 1), val)
+        else
+          push_stack(val)
+        end
+
+      v when v < 16 ->
         write_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))), val)
-      else
+
+      _ ->
         write_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)), val)
-      end
     end
   end
 
@@ -481,305 +478,206 @@ defmodule Zorb.Interpreter do
 
   # --- Opcodes ---
   defw execute_2op(opc: I32, o1: I32, o2: I32) do
-    if I32.eq(opc, 0x01) do
-      execute_je(o1, o2, 0, 0, 0x5F)
-      return()
-    end
+    case opc do
+      0x01 ->
+        execute_je(o1, o2, 0, 0, 0x5F)
 
-    if I32.eq(opc, 0x02) do
-      fetch_branch(I32.lt_s(sign_extend_16(o1), sign_extend_16(o2)))
-      return()
-    end
+      0x02 ->
+        fetch_branch(I32.lt_s(sign_extend_16(o1), sign_extend_16(o2)))
 
-    if I32.eq(opc, 0x03) do
-      fetch_branch(I32.gt_s(sign_extend_16(o1), sign_extend_16(o2)))
-      return()
-    end
+      0x03 ->
+        fetch_branch(I32.gt_s(sign_extend_16(o1), sign_extend_16(o2)))
 
-    if I32.eq(opc, 0x04) do
-      write_variable_replace(o1, I32.sub(read_variable_peek(o1), 1))
-      fetch_branch(I32.lt_s(sign_extend_16(read_variable_peek(o1)), sign_extend_16(o2)))
-      return()
-    end
+      0x04 ->
+        write_variable_replace(o1, I32.sub(read_variable_peek(o1), 1))
+        fetch_branch(I32.lt_s(sign_extend_16(read_variable_peek(o1)), sign_extend_16(o2)))
 
-    if I32.eq(opc, 0x05) do
-      write_variable_replace(o1, I32.add(read_variable_peek(o1), 1))
-      fetch_branch(I32.gt_s(sign_extend_16(read_variable_peek(o1)), sign_extend_16(o2)))
-      return()
-    end
+      0x05 ->
+        write_variable_replace(o1, I32.add(read_variable_peek(o1), 1))
+        fetch_branch(I32.gt_s(sign_extend_16(read_variable_peek(o1)), sign_extend_16(o2)))
 
-    if I32.eq(opc, 0x06) do
-      fetch_branch(I32.eq(get_object_parent(o1), o2))
-      return()
-    end
+      0x06 ->
+        fetch_branch(I32.eq(get_object_parent(o1), o2))
 
-    if I32.eq(opc, 0x07) do
-      # test bitmap flags
-      fetch_branch(I32.eq(I32.band(o1, o2), o2))
-      return()
-    end
+      0x07 ->
+        # test bitmap flags
+        fetch_branch(I32.eq(I32.band(o1, o2), o2))
 
-    if I32.eq(opc, 0x08) do
-      fetch_result_and_store(I32.band(I32.or(o1, o2), 0xFFFF))
-      return()
-    end
+      0x08 ->
+        fetch_result_and_store(I32.band(I32.or(o1, o2), 0xFFFF))
 
-    if I32.eq(opc, 0x09) do
-      fetch_result_and_store(I32.band(I32.band(o1, o2), 0xFFFF))
-      return()
-    end
+      0x09 ->
+        fetch_result_and_store(I32.band(I32.band(o1, o2), 0xFFFF))
 
-    if I32.eq(opc, 0x0A) do
-      fetch_branch(check_attribute(o1, o2))
-      return()
-    end
+      0x0A ->
+        fetch_branch(check_attribute(o1, o2))
 
-    if I32.eq(opc, 0x0B) do
-      set_attribute(o1, o2, 1)
-      return()
-    end
+      0x0B ->
+        set_attribute(o1, o2, 1)
 
-    if I32.eq(opc, 0x0C) do
-      set_attribute(o1, o2, 0)
-      return()
-    end
+      0x0C ->
+        set_attribute(o1, o2, 0)
 
-    if I32.eq(opc, 0x0D) do
-      write_variable_replace(o1, o2)
-      return()
-    end
+      0x0D ->
+        write_variable_replace(o1, o2)
 
-    if I32.eq(opc, 0x0E) do
-      do_insert_obj(o1, o2)
-      return()
-    end
+      0x0E ->
+        do_insert_obj(o1, o2)
 
-    if I32.eq(opc, 0x0F) do
-      fetch_result_and_store(read_word(I32.add(o1, I32.shl(o2, 1))))
-      return()
-    end
+      0x0F ->
+        fetch_result_and_store(read_word(I32.add(o1, I32.shl(o2, 1))))
 
-    if I32.eq(opc, 0x10) do
-      fetch_result_and_store(read_byte(I32.add(o1, o2)))
-      return()
-    end
+      0x10 ->
+        fetch_result_and_store(read_byte(I32.add(o1, o2)))
 
-    if I32.eq(opc, 0x11) do
-      fetch_result_and_store(get_prop_value(o1, o2))
-      return()
-    end
+      0x11 ->
+        fetch_result_and_store(get_prop_value(o1, o2))
 
-    if I32.eq(opc, 0x12) do
-      fetch_result_and_store(get_prop_address(o1, o2))
-      return()
-    end
+      0x12 ->
+        fetch_result_and_store(get_prop_address(o1, o2))
 
-    if I32.eq(opc, 0x13) do
-      fetch_result_and_store(get_next_prop(o1, o2))
-      return()
-    end
+      0x13 ->
+        fetch_result_and_store(get_next_prop(o1, o2))
 
-    if I32.eq(opc, 0x14) do
-      fetch_result_and_store(I32.band(I32.add(o1, o2), 0xFFFF))
-      return()
-    end
+      0x14 ->
+        fetch_result_and_store(I32.band(I32.add(o1, o2), 0xFFFF))
 
-    if I32.eq(opc, 0x15) do
-      fetch_result_and_store(I32.band(I32.sub(o1, o2), 0xFFFF))
-      return()
-    end
+      0x15 ->
+        fetch_result_and_store(I32.band(I32.sub(o1, o2), 0xFFFF))
 
-    if I32.eq(opc, 0x16) do
-      fetch_result_and_store(I32.band(I32.mul(o1, o2), 0xFFFF))
-      return()
-    end
+      0x16 ->
+        fetch_result_and_store(I32.band(I32.mul(o1, o2), 0xFFFF))
 
-    if I32.eq(opc, 0x17) do
-      fetch_result_and_store(I32.band(I32.div_s(sign_extend_16(o1), sign_extend_16(o2)), 0xFFFF))
-      return()
-    end
+      0x17 ->
+        fetch_result_and_store(I32.band(I32.div_s(sign_extend_16(o1), sign_extend_16(o2)), 0xFFFF))
 
-    if I32.eq(opc, 0x18) do
-      fetch_result_and_store(I32.band(I32.rem_s(sign_extend_16(o1), sign_extend_16(o2)), 0xFFFF))
-      return()
-    end
+      0x18 ->
+        fetch_result_and_store(I32.band(I32.rem_s(sign_extend_16(o1), sign_extend_16(o2)), 0xFFFF))
 
-    if I32.eq(opc, 0x19) do
-      # call_2s
-      do_call(unpack_routine_address(o1), fetch_byte(), 1, o2, 0, 0, 0, 0, 0, 0, 0)
-      return()
-    end
+      0x19 ->
+        # call_2s
+        do_call(unpack_routine_address(o1), fetch_byte(), 1, o2, 0, 0, 0, 0, 0, 0, 0)
 
-    if I32.eq(opc, 0x1A) do
-      # call_2n
-      do_call(unpack_routine_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
-      return()
-    end
+      0x1A ->
+        # call_2n
+        do_call(unpack_routine_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
 
-    if I32.eq(opc, 0x1C) do
-      # throw (V5)
-      # return val to frame index
-      @csp = o2
-      do_return(o1)
-      return()
-    end
+      0x1C ->
+        # throw (V5)
+        # return val to frame index
+        @csp = o2
+        do_return(o1)
 
-    halt(3, @pc, opc)
+      _ ->
+        halt(3, @pc, opc)
+    end
   end
 
   defw execute_1op(opc: I32, o1: I32) do
-    if I32.eq(opc, 0x00) do
-      fetch_branch(I32.eq(o1, 0))
-      return()
+    case opc do
+      0x00 ->
+        fetch_branch(I32.eq(o1, 0))
+
+      0x01 ->
+        do_get_sibling(o1)
+
+      0x02 ->
+        do_get_child(o1)
+
+      0x03 ->
+        fetch_result_and_store(get_object_parent(o1))
+
+      0x04 ->
+        fetch_result_and_store(get_prop_len(o1))
+
+      0x05 ->
+        write_variable_replace(o1, I32.add(read_variable_peek(o1), 1))
+
+      0x06 ->
+        write_variable_replace(o1, I32.sub(read_variable_peek(o1), 1))
+
+      0x07 ->
+        print_zstring(o1)
+
+      0x08 ->
+        do_call(unpack_routine_address(o1), fetch_byte(), 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+      0x09 ->
+        do_remove_obj(o1)
+
+      0x0A ->
+        # print_obj
+        print_zstring(I32.add(get_prop_table_address(o1), 1))
+
+      0x0B ->
+        do_return(o1)
+
+      0x0C ->
+        @pc = I32.add(I32.add(@pc, sign_extend_16(o1)), -2)
+
+      0x0D ->
+        print_zstring(unpack_string_address(o1))
+
+      0x0E ->
+        fetch_result_and_store(read_variable_peek(o1))
+
+      0x0F ->
+        if I32.lt_u(@version, 5) do
+          # not
+          fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
+        else
+          # call_1n
+          do_call(unpack_routine_address(o1), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        end
+
+      _ ->
+        halt(3, @pc, opc)
     end
-
-    if I32.eq(opc, 0x01) do
-      do_get_sibling(o1)
-      return()
-    end
-
-    if I32.eq(opc, 0x02) do
-      do_get_child(o1)
-      return()
-    end
-
-    if I32.eq(opc, 0x03) do
-      fetch_result_and_store(get_object_parent(o1))
-      return()
-    end
-
-    if I32.eq(opc, 0x04) do
-      fetch_result_and_store(get_prop_len(o1))
-      return()
-    end
-
-    if I32.eq(opc, 0x05) do
-      write_variable_replace(o1, I32.add(read_variable_peek(o1), 1))
-      return()
-    end
-
-    if I32.eq(opc, 0x06) do
-      write_variable_replace(o1, I32.sub(read_variable_peek(o1), 1))
-      return()
-    end
-
-    if I32.eq(opc, 0x07) do
-      print_zstring(o1)
-      return()
-    end
-
-    if I32.eq(opc, 0x08) do
-      do_call(unpack_routine_address(o1), fetch_byte(), 0, 0, 0, 0, 0, 0, 0, 0, 0)
-      return()
-    end
-
-    if I32.eq(opc, 0x09) do
-      do_remove_obj(o1)
-      return()
-    end
-
-    if I32.eq(opc, 0x0A) do
-      # print_obj
-      print_zstring(I32.add(get_prop_table_address(o1), 1))
-      return()
-    end
-
-    if I32.eq(opc, 0x0B) do
-      do_return(o1)
-      return()
-    end
-
-    if I32.eq(opc, 0x0C) do
-      @pc = I32.add(I32.add(@pc, sign_extend_16(o1)), -2)
-      return()
-    end
-
-    if I32.eq(opc, 0x0D) do
-      print_zstring(unpack_string_address(o1))
-      return()
-    end
-
-    if I32.eq(opc, 0x0E) do
-      fetch_result_and_store(read_variable_peek(o1))
-      return()
-    end
-
-    if I32.eq(opc, 0x0F) do
-      if I32.lt_u(@version, 5) do
-        # not
-        fetch_result_and_store(I32.band(I32.xor(o1, 0xFFFF), 0xFFFF))
-      else
-        # call_1n
-        do_call(unpack_routine_address(o1), 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-      end
-
-      return()
-    end
-
-    halt(3, @pc, opc)
   end
 
   defw execute_0op(opc: I32) do
-    if I32.eq(opc, 0x00) do
-      do_return(1)
-      return()
-    end
+    case opc do
+      0x00 ->
+        do_return(1)
 
-    if I32.eq(opc, 0x01) do
-      do_return(0)
-      return()
-    end
+      0x01 ->
+        do_return(0)
 
-    if I32.eq(opc, 0x02) do
-      print_zstring(0)
-      return()
-    end
+      0x02 ->
+        print_zstring(0)
 
-    if I32.eq(opc, 0x03) do
-      print_zstring(0)
-      print_char_wasm(13)
-      do_return(1)
-      return()
-    end
+      0x03 ->
+        print_zstring(0)
+        print_char_wasm(13)
+        do_return(1)
 
-    if I32.eq(opc, 0x08) do
-      do_return(pop_stack())
-      return()
-    end
+      0x08 ->
+        do_return(pop_stack())
 
-    if I32.eq(opc, 0x09) do
-      # catch (V5)
-      fetch_result_and_store(@csp)
-      return()
-    end
+      0x09 ->
+        # catch (V5)
+        fetch_result_and_store(@csp)
 
-    if I32.eq(opc, 0x0A) do
-      halt(0, @pc, 0)
-      return()
-    end
+      0x0A ->
+        halt(0, @pc, 0)
 
-    if I32.eq(opc, 0x0B) do
-      print_char_wasm(13)
-      return()
-    end
+      0x0B ->
+        print_char_wasm(13)
 
-    if I32.eq(opc, 0x0C) do
-      # show_status (V3)
-      return()
-    end
+      0x0C ->
+        # show_status (V3)
+        :ok
 
-    if I32.eq(opc, 0x0D) do
-      fetch_branch(do_verify())
-      return()
-    end
+      0x0D ->
+        fetch_branch(do_verify())
 
-    if I32.eq(opc, 0x0F) do
-      # piracy (V5)
-      fetch_branch(1)
-      return()
-    end
+      0x0F ->
+        # piracy (V5)
+        fetch_branch(1)
 
-    halt(3, @pc, opc)
+      _ ->
+        halt(3, @pc, opc)
+    end
   end
 
   defw execute_var(

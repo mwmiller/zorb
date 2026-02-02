@@ -1,30 +1,34 @@
-defmodule Zorb.DictionaryTest do
+defmodule Zorb.ExtractorTest.Conflicts do
   use ExUnit.Case, async: true
-  alias Zorb.Dictionary
+  alias Zorb.Extractor
 
-  test "select_prefix/1 chooses / when no collision" do
+  test "collision_audit/1 chooses / when no collision" do
     # Minimal valid story with a dictionary that doesn't contain /
     story = build_minimal_story([])
-    assert Dictionary.select_prefix(story) == "/"
+    assert Extractor.collision_audit(story).recommended_prefix == "/"
   end
 
-  test "select_prefix/1 chooses ~ when / conflicts" do
+  test "collision_audit/1 chooses ~ when / conflicts" do
     # Dictionary where / is a separator
     story = build_minimal_story([?/])
-    assert Dictionary.select_prefix(story) == "~"
+    assert Extractor.collision_audit(story).recommended_prefix == "~"
   end
 
-  test "select_prefix/1 chooses ! when /, ~, and ` conflict" do
-    # This is harder to mock without a real Z-string encoder,
-    # but we can simulate by making them separators.
+  test "collision_audit/1 chooses ! when /, ~, and ` conflict" do
     story = build_minimal_story([?/, ?~, ?`])
-    assert Dictionary.select_prefix(story) == "!"
+    assert Extractor.collision_audit(story).recommended_prefix == "!"
+  end
+
+  test "collision_audit/1 returns nil when all prefixes conflict" do
+    story = build_minimal_story([?/, ?~, ?`, ?!])
+    assert Extractor.collision_audit(story).recommended_prefix == nil
   end
 
   defp build_minimal_story(separators) do
+    # Version 3 at offset 0
     # Header: 64 bytes. Offset 8 is dict_base.
     dict_base = 64
-    header = :binary.copy(<<0>>, 64)
+    header = <<3>> <> :binary.copy(<<0>>, 63)
     header = put_word(header, 8, dict_base)
 
     num_seps = length(separators)
