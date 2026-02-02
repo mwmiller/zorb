@@ -155,6 +155,7 @@ defmodule Zorb.InterpreterTest.Attributes do
     assert Zorb.TestRuntime.call(inst, :get_pc) == 0x0108
 
     # get_prop_addr 1, 1 -> G16
+    Zorb.TestRuntime.call(inst, :step)
     assert Zorb.TestRuntime.call(inst, :read_variable, 16) == 18
   end
 end

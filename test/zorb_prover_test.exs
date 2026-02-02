@@ -121,7 +121,7 @@ defmodule Zorb.ProverTest do
 
     task = Task.async(fn -> Runner.run(prover_path, owner) end)
 
-    expect("ZORK: The Great Underground Empire : Part I", 5000, task.pid)
+    expect("ZORK: The Great Underground Empire - Part I", 5000, task.pid)
     expect("West of House", 5000, task.pid)
     answer(task.pid, "quit\n")
     expect("leave the game", 5000, task.pid)

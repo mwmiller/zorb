@@ -1654,7 +1654,7 @@ defmodule Zorb.Interpreter do
     end
 
     # This is the core fix: use pbase for offset calculation
-    pbase = if(I32.eq(@version, 1), do: I32.const(5), else: I32.const(6))
+    pbase = I32.const(6)
 
     if I32.ge_u(zchar, pbase) do
       print_char_wasm(
@@ -2300,104 +2300,50 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(@version, 1) do
       # V1 A2 alphabet (Spec 3.5.2)
-      # 0
-      Memory.store!(I32.U8, 0x81034, 48)
-      # 1
-      Memory.store!(I32.U8, 0x81035, 49)
-      # 2
-      Memory.store!(I32.U8, 0x81036, 50)
-      # 3
-      Memory.store!(I32.U8, 0x81037, 51)
-      # 4
-      Memory.store!(I32.U8, 0x81038, 52)
-      # 5
-      Memory.store!(I32.U8, 0x81039, 53)
-      # 6
-      Memory.store!(I32.U8, 0x8103A, 54)
-      # 7
-      Memory.store!(I32.U8, 0x8103B, 55)
-      # 8
-      Memory.store!(I32.U8, 0x8103C, 56)
-      # 9
-      Memory.store!(I32.U8, 0x8103D, 57)
-      # .
-      Memory.store!(I32.U8, 0x8103E, 46)
-      # ,
-      Memory.store!(I32.U8, 0x8103F, 44)
-      # !
-      Memory.store!(I32.U8, 0x81040, 33)
-      # ?
-      Memory.store!(I32.U8, 0x81041, 63)
-      # _
-      Memory.store!(I32.U8, 0x81042, 95)
-      # #
-      Memory.store!(I32.U8, 0x81043, 35)
-      # '
-      Memory.store!(I32.U8, 0x81044, 39)
-      # "
-      Memory.store!(I32.U8, 0x81045, 34)
-      # /
-      Memory.store!(I32.U8, 0x81046, 47)
-      # \
-      Memory.store!(I32.U8, 0x81047, 92)
-      # <
-      Memory.store!(I32.U8, 0x81048, 60)
-      # -
-      Memory.store!(I32.U8, 0x81049, 45)
-      # :
-      Memory.store!(I32.U8, 0x8104A, 58)
-      # (
-      Memory.store!(I32.U8, 0x8104B, 40)
-      # )
-      Memory.store!(I32.U8, 0x8104C, 41)
-      # space
-      Memory.store!(I32.U8, 0x8104D, 32)
-    else
-      # V2+ A2 alphabet: " \r0123456789.,!?_#'"/\\-:( )"
-      # space at index 0 (Z-char 6) - ignored by decode_zchar escape logic
+      # Space at index 0 (Z-char 6)
       Memory.store!(I32.U8, 0x81034, 32)
-      # \r at index 1 (Z-char 7)
-      Memory.store!(I32.U8, 0x81035, 13)
       # 0
-      Memory.store!(I32.U8, 0x81036, 48)
+      Memory.store!(I32.U8, 0x81035, 48)
       # 1
-      Memory.store!(I32.U8, 0x81037, 49)
+      Memory.store!(I32.U8, 0x81036, 49)
       # 2
-      Memory.store!(I32.U8, 0x81038, 50)
+      Memory.store!(I32.U8, 0x81037, 50)
       # 3
-      Memory.store!(I32.U8, 0x81039, 51)
+      Memory.store!(I32.U8, 0x81038, 51)
       # 4
-      Memory.store!(I32.U8, 0x8103A, 52)
+      Memory.store!(I32.U8, 0x81039, 52)
       # 5
-      Memory.store!(I32.U8, 0x8103B, 53)
+      Memory.store!(I32.U8, 0x8103A, 53)
       # 6
-      Memory.store!(I32.U8, 0x8103C, 54)
+      Memory.store!(I32.U8, 0x8103B, 54)
       # 7
-      Memory.store!(I32.U8, 0x8103D, 55)
+      Memory.store!(I32.U8, 0x8103C, 55)
       # 8
-      Memory.store!(I32.U8, 0x8103E, 56)
+      Memory.store!(I32.U8, 0x8103D, 56)
       # 9
-      Memory.store!(I32.U8, 0x8103F, 57)
+      Memory.store!(I32.U8, 0x8103E, 57)
       # .
-      Memory.store!(I32.U8, 0x81040, 46)
+      Memory.store!(I32.U8, 0x8103F, 46)
       # ,
-      Memory.store!(I32.U8, 0x81041, 44)
+      Memory.store!(I32.U8, 0x81040, 44)
       # !
-      Memory.store!(I32.U8, 0x81042, 33)
+      Memory.store!(I32.U8, 0x81041, 33)
       # ?
-      Memory.store!(I32.U8, 0x81043, 63)
+      Memory.store!(I32.U8, 0x81042, 63)
       # _
-      Memory.store!(I32.U8, 0x81044, 95)
+      Memory.store!(I32.U8, 0x81043, 95)
       # #
-      Memory.store!(I32.U8, 0x81045, 35)
+      Memory.store!(I32.U8, 0x81044, 35)
       # '
-      Memory.store!(I32.U8, 0x81046, 39)
+      Memory.store!(I32.U8, 0x81045, 39)
       # "
-      Memory.store!(I32.U8, 0x81047, 34)
+      Memory.store!(I32.U8, 0x81046, 34)
       # /
-      Memory.store!(I32.U8, 0x81048, 47)
+      Memory.store!(I32.U8, 0x81047, 47)
       # \
-      Memory.store!(I32.U8, 0x81049, 92)
+      Memory.store!(I32.U8, 0x81048, 92)
+      # <
+      Memory.store!(I32.U8, 0x81049, 60)
       # -
       Memory.store!(I32.U8, 0x8104A, 45)
       # :
@@ -2406,6 +2352,116 @@ defmodule Zorb.Interpreter do
       Memory.store!(I32.U8, 0x8104C, 40)
       # )
       Memory.store!(I32.U8, 0x8104D, 41)
+    else
+      if I32.eq(@version, 2) do
+        # V2 A2 alphabet: " \r0123456789.,!?_#'"/\\-:( )"
+        # space at index 0 (Z-char 6)
+        Memory.store!(I32.U8, 0x81034, 32)
+        # \r at index 1 (Z-char 7)
+        Memory.store!(I32.U8, 0x81035, 13)
+        # 0
+        Memory.store!(I32.U8, 0x81036, 48)
+        # 1
+        Memory.store!(I32.U8, 0x81037, 49)
+        # 2
+        Memory.store!(I32.U8, 0x81038, 50)
+        # 3
+        Memory.store!(I32.U8, 0x81039, 51)
+        # 4
+        Memory.store!(I32.U8, 0x8103A, 52)
+        # 5
+        Memory.store!(I32.U8, 0x8103B, 53)
+        # 6
+        Memory.store!(I32.U8, 0x8103C, 54)
+        # 7
+        Memory.store!(I32.U8, 0x8103D, 55)
+        # 8
+        Memory.store!(I32.U8, 0x8103E, 56)
+        # 9
+        Memory.store!(I32.U8, 0x8103F, 57)
+        # .
+        Memory.store!(I32.U8, 0x81040, 46)
+        # ,
+        Memory.store!(I32.U8, 0x81041, 44)
+        # !
+        Memory.store!(I32.U8, 0x81042, 33)
+        # ?
+        Memory.store!(I32.U8, 0x81043, 63)
+        # _
+        Memory.store!(I32.U8, 0x81044, 95)
+        # #
+        Memory.store!(I32.U8, 0x81045, 35)
+        # '
+        Memory.store!(I32.U8, 0x81046, 39)
+        # "
+        Memory.store!(I32.U8, 0x81047, 34)
+        # /
+        Memory.store!(I32.U8, 0x81048, 47)
+        # \
+        Memory.store!(I32.U8, 0x81049, 92)
+        # -
+        Memory.store!(I32.U8, 0x8104A, 45)
+        # :
+        Memory.store!(I32.U8, 0x8104B, 58)
+        # (
+        Memory.store!(I32.U8, 0x8104C, 40)
+        # )
+        Memory.store!(I32.U8, 0x8104D, 41)
+      else
+        # V3+ A2 alphabet: Same as V2 but Z-char 7 (Index 1) is '0'
+        # space at index 0 (Z-char 6)
+        Memory.store!(I32.U8, 0x81034, 32)
+        # 0 at index 1 (Z-char 7) - The V3 change!
+        Memory.store!(I32.U8, 0x81035, 48)
+        # 0 (Z-char 8) - Keeps V2 alignment
+        Memory.store!(I32.U8, 0x81036, 48)
+        # 1
+        Memory.store!(I32.U8, 0x81037, 49)
+        # 2
+        Memory.store!(I32.U8, 0x81038, 50)
+        # 3
+        Memory.store!(I32.U8, 0x81039, 51)
+        # 4
+        Memory.store!(I32.U8, 0x8103A, 52)
+        # 5
+        Memory.store!(I32.U8, 0x8103B, 53)
+        # 6
+        Memory.store!(I32.U8, 0x8103C, 54)
+        # 7
+        Memory.store!(I32.U8, 0x8103D, 55)
+        # 8
+        Memory.store!(I32.U8, 0x8103E, 56)
+        # 9
+        Memory.store!(I32.U8, 0x8103F, 57)
+        # .
+        Memory.store!(I32.U8, 0x81040, 46)
+        # ,
+        Memory.store!(I32.U8, 0x81041, 44)
+        # !
+        Memory.store!(I32.U8, 0x81042, 33)
+        # ?
+        Memory.store!(I32.U8, 0x81043, 63)
+        # _
+        Memory.store!(I32.U8, 0x81044, 95)
+        # #
+        Memory.store!(I32.U8, 0x81045, 35)
+        # '
+        Memory.store!(I32.U8, 0x81046, 39)
+        # "
+        Memory.store!(I32.U8, 0x81047, 34)
+        # /
+        Memory.store!(I32.U8, 0x81048, 47)
+        # \
+        Memory.store!(I32.U8, 0x81049, 92)
+        # -
+        Memory.store!(I32.U8, 0x8104A, 45)
+        # :
+        Memory.store!(I32.U8, 0x8104B, 58)
+        # (
+        Memory.store!(I32.U8, 0x8104C, 40)
+        # )
+        Memory.store!(I32.U8, 0x8104D, 41)
+      end
     end
 
     if I32.ge_u(@version, 5) do
