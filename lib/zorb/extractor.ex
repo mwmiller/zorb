@@ -40,10 +40,10 @@ defmodule Zorb.Extractor do
     a1 = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     a2 =
-      case version do
-        1 -> ~c" 0123456789.,!?_#'\"/\\<-:()"
-        2 -> ~c" \r0123456789.,!?_#'\"/\\-:()"
-        _ -> ~c" 0123456789.,!?_#'\"/\\-:() "
+      if version == 1 do
+        ~c" \n0123456789.,!?_#'\"/\\-:( )"
+      else
+        ~c" \r0123456789.,!?_#'\"/\\-:( )"
       end
 
     alphabets = [a0, a1, a2]
