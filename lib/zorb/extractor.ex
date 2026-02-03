@@ -109,7 +109,10 @@ defmodule Zorb.Extractor do
               {_, _} ->
                 # Abbrev address is a word address, so multiply by 2
                 entry_addr = abbrev_base + ((abbrev_bank - 1) * 32 + z) * 2
-                word_addr = :binary.at(data, entry_addr) <<< 8 ||| :binary.at(data, entry_addr + 1)
+
+                word_addr =
+                  :binary.at(data, entry_addr) <<< 8 ||| :binary.at(data, entry_addr + 1)
+
                 # Abbreviations are word addresses (Spec 1.2.2)
                 ptr = word_addr * 2
 

@@ -1,19 +1,28 @@
-# Handoff - February 1, 2026
+# Handoff: Zorb "Bespoke" Architecture Pivot
 
-## Current Status
-Resolved major test synchronization issues. `strictz.z5` and `zil_test.z3` are now passing reliably. Implemented core tokenization support via a host import.
+## Current State
+The project has successfully pivoted from a generic runtime interpreter to a **Game Capsule** architecture. Every Z-machine story is now compiled into its own optimized WASM binary.
 
-### Improvements & Fixes
-- **Tokenization Support**: Implemented `tokenize` as an Elixir host import. This includes Z-string encoding (V1-V5), dictionary binary search, and word splitting. This was the missing piece for command-line provers like `zil_test.z3`.
-- **Input Refinement**: Corrected `read_input` (sread) logic for V1-V3 buffer limits. It no longer subtracts 1 twice from the max length.
-- **Deadlock Resolution**: Fixed a Wasmex deadlock where an import callback was trying to call back into the instance process. Used the provided `caller` and `memory` context instead.
-- **Test Suite**: Updated `zil_test.z3` to handle the "Are you sure you want to quit?" prompt. Added `simple_test.z5` to the suite.
+### Progress
+- **Logic Isolation**: All Z-machine instructions are in `lib/zorb/interpreter/logic_body.exs`.
+- **Compile-Time Branching**: Added `v_at_least` macro to optimize version-specific logic at compile-time.
+- **Persistent Caching**: Implemented a caching system in `Zorb.Capsule` that stores artifacts in `tmp/zorb_cache/<version>/`.
+- **Host Contract**: Defined `Zorb.Capsule.Host` and documented it in `CAPSULE_HOST.md`.
+- **Test Suite**: Refactored `test/zorb_prover_test.exs` to use dynamic capsules. Legacy `Interpreter` tests have been deleted.
 
-### Blockers / Pending Issues
-1. **skip_name Accuracy**: Still using a simplified word-count skip. Needs bit-scanning Z-string skipper for full Spec 3.2 compliance.
-2. **V6/V7 Packed Addresses**: `simple_test.z6` fails due to incorrect packed address calculation (needs R_O and S_O offsets).
+## Known Challenges
+- **Large Story Compilation**: Initial compilation of large story files (like Zork) is slow due to the massive AST transformation (thousands of `var!` wrappers). Caching resolves this for subsequent runs, but the first-run experience needs optimization.
+- **Hygiene & Macros**: The current robust solution uses `Code.string_to_quoted!` and `quote unquote: false` to bypass Elixir's macro hygiene for WASM local variables. This works but is heavy.
 
-### Next Steps
-- Implement V6/V7 packed address logic.
-- Expand integration tests to Z1 and Z2 (Zork 1 fixtures).
-- Move ZSCII/Unicode logic to a dedicated module.
+## Immediate Tasks for Next Agent
+1. **Verify All Provers**: Run `mix test test/zorb_prover_test.exs` and ensure all tests pass (expect a long first run).
+2. **Optimize First-Run "Baking"**:
+    - Explore pre-parsing `logic_body.exs` into a "template" AST to avoid repeated parsing.
+    - Reduce the number of `var!` wrappers if possible, or move them into the source file permanently.
+3. **Capabilities Implementation**: Ensure `get_capabilities` is fully utilized in the logic to enable/disable features like Font 3.
+4. **WASM Size Optimization**: Check if generated capsules can be further minimized (e.g., pruning unused instructions).
+
+## Caching Reference
+- Version: `0.1.0-alpha.1`
+- Directory: `tmp/zorb_cache/0.1.0-alpha.1/`
+- Key Format: `<version>-<size>-<header_hash_prefix>`
