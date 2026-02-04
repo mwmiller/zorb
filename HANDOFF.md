@@ -1,28 +1,26 @@
-# Handoff: Zorb "Bespoke" Architecture Pivot
+# Zorb Project Handoff - February 4, 2026
 
-## Current State
-The project has successfully pivoted from a generic runtime interpreter to a **Game Capsule** architecture. Every Z-machine story is now compiled into its own optimized WASM binary.
+## Current Status: STABLE BASE ACHIEVED
+The project has successfully reached a stable baseline where the core Z-machine logic is fully compatible with the current `Orb` (0.2.2) DSL. All **8 prover integration tests** are passing.
 
-### Progress
-- **Logic Isolation**: All Z-machine instructions are in `lib/zorb/interpreter/logic_body.exs`.
-- **Compile-Time Branching**: Added `v_at_least` macro to optimize version-specific logic at compile-time.
-- **Persistent Caching**: Implemented a caching system in `Zorb.Capsule` that stores artifacts in `tmp/zorb_cache/<version>/`.
-- **Host Contract**: Defined `Zorb.Capsule.Host` and documented it in `CAPSULE_HOST.md`.
-- **Test Suite**: Refactored `test/zorb_prover_test.exs` to use dynamic capsules. Legacy `Interpreter` tests have been deleted.
+## The Struggle: The "Baking Factory" vs. Elixir Module Lifecycle
+The initial attempt to implement the **Game Capsule** architecture relied on dynamic source code generation (`String.replace`) followed by `Code.eval_string`. This approach proved extremely fragile due to:
+1.  **Attribute Persistence**: `Orb` relies heavily on module attributes (`@wasm_imports`, etc.) which do not always persist or expand correctly when modules are defined inside an `eval_string` or a macro.
+2.  **Operator Overloading & Guards**: The proven interpreter used `case` statements with guards (e.g., `v when v < 16`). Because `Orb` overloads operators for WASM variable references, these guards failed at compile-time because they couldn't be evaluated by the standard Elixir guard system.
+3.  **Case Matching**: Pattern matching directly on WASM local variables (which are structs like `%Orb.VariableReference{}`) in `case` statements is not supported in the current version of `Orb`.
 
-## Known Challenges
-- **Large Story Compilation**: Initial compilation of large story files (like Zork) is slow due to the massive AST transformation (thousands of `var!` wrappers). Caching resolves this for subsequent runs, but the first-run experience needs optimization.
-- **Hygiene & Macros**: The current robust solution uses `Code.string_to_quoted!` and `quote unquote: false` to bypass Elixir's macro hygiene for WASM local variables. This works but is heavy.
+## The New Vision: Programmatic AST Transformation
+To overcome these issues, we have pivoted to a more robust "AST-first" approach:
+1.  **Proven Logic Base**: The interpreter logic has been refactored to use `if/else` chains instead of `case` blocks for WASM variables. This is now the "proven base" in `lib/zorb/interpreter.ex`.
+2.  **Extracted Logic Body**: The core globals and functions have been extracted into `lib/zorb/interpreter/logic_body.exs`.
+3.  **Future Game Capsules**: Instead of `eval_string`, the `Zorb.Capsule` system will transition to programmatically constructing `Orb.ModuleDefinition` structs. It will take the proven AST from `logic_body.exs` and inject story-specific data segments and globals at the AST level before final WASM generation.
 
-## Immediate Tasks for Next Agent
-1. **Verify All Provers**: Run `mix test test/zorb_prover_test.exs` and ensure all tests pass (expect a long first run).
-2. **Optimize First-Run "Baking"**:
-    - Explore pre-parsing `logic_body.exs` into a "template" AST to avoid repeated parsing.
-    - Reduce the number of `var!` wrappers if possible, or move them into the source file permanently.
-3. **Capabilities Implementation**: Ensure `get_capabilities` is fully utilized in the logic to enable/disable features like Font 3.
-4. **WASM Size Optimization**: Check if generated capsules can be further minimized (e.g., pruning unused instructions).
+## Key Changes in this Session
+- **Refactored `Zorb.Interpreter`**: Replaced all problematic `case` statements with `if/else` blocks.
+- **Fixed Type Duplication**: Moved types to a dedicated `Zorb.Interpreter.Types` module to avoid redefinition errors.
+- **Import Stabilization**: Corrected the `zio` namespace import registration.
+- **Testing**: Updated `Zorb.Runner` and `Zorb.ProverTest` to ensure output messages are correctly routed to the test process.
 
-## Caching Reference
-- Version: `0.1.0-alpha.1`
-- Directory: `tmp/zorb_cache/0.1.0-alpha.1/`
-- Key Format: `<version>-<size>-<header_hash_prefix>`
+## Immediate Next Steps
+- Finalize the `Zorb.Capsule` transition to use programmatic AST assembly instead of the current `Logic.generate_module_source` string-based approach.
+- Ensure the `v_at_least` macro correctly handles `nop()` for empty branches to satisfy `Orb`'s requirement that every block returns a valid WASM instruction.
