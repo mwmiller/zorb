@@ -1,37 +1,35 @@
-    @pc 0
-    @version 0
-    @sp 0
-    @fp 0
-    @csp 0
-    @stack_base 0x90000
-    @call_stack_base 0x98000
-    @globals_base 0
-    @static_memory_base 0
-    @dictionary_base 0
-    @object_table_base 0
-    @object_table_start 0
-    @abbreviations_base 0
-    @next_alphabet -1
-    @abbrev_mode 0
-    @recursion_depth 0
-    @packed_address_shift 0
-    @routine_offset 0
-    @string_offset 0
-    @stream3_table 0
-    @stream3_active 0
-    @object_entry_size 0
-    @object_parent_offset 0
-    @object_sibling_offset 0
-    @object_child_offset 0
-    @object_property_table_offset 0
-    @random_state 1
-    @story_len 0
-    @capabilities 0
-    @zscii_state 0
-    @zscii_high 0
-    @unicode_table_base 0
-    @current_font 1
-    @current_alphabet 0
-    @halted 0
-  end
-
+@pc 0
+@version 0
+@sp 0
+@fp 0
+@csp 0
+@stack_base 0x90000
+@call_stack_base 0x98000
+@globals_base 0
+@static_memory_base 0
+@dictionary_base 0
+@object_table_base 0
+@object_table_start 0
+@abbreviations_base 0
+@next_alphabet -1
+@abbrev_mode 0
+@recursion_depth 0
+@packed_address_shift 0
+@routine_offset 0
+@string_offset 0
+@stream3_table 0
+@stream3_active 0
+@object_entry_size 0
+@object_parent_offset 0
+@object_sibling_offset 0
+@object_child_offset 0
+@object_property_table_offset 0
+@random_state 1
+@story_len 0
+@capabilities 0
+@zscii_state 0
+@zscii_high 0
+@unicode_table_base 0
+@current_font 1
+@current_alphabet 0
+@halted 0

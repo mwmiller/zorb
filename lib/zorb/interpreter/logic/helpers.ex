@@ -21,12 +21,16 @@ defmodule Zorb.Interpreter.Logic.Helpers do
         end
       end
     else
-      current_v = :binary.at(story_data, 0)
+      current_v =
+        case story_data do
+          bin when is_binary(bin) -> :binary.at(bin, 0)
+          list when is_list(list) -> Enum.at(list, 0)
+        end
 
       if current_v >= v do
         yes_block
       else
-        no_block
+        no_block || quote do: Orb.DSL.nop()
       end
     end
   end

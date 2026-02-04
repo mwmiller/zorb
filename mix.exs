@@ -41,7 +41,8 @@ defmodule Zorb.MixProject do
     [
       {:orb, "~> 0.2.2"},
       {:wasmex, "~> 0.14.0"},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:sourceror, "~> 1.7"}
     ]
   end
 end

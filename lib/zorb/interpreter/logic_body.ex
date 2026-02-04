@@ -5,7 +5,7 @@ defmodule Zorb.Interpreter.LogicBody do
     # We parse the body into AST
     ast = Code.string_to_quoted!(body, file: path)
 
-    # We return the AST, but we use a special trick: 
+    # We return the AST, but we use a special trick:
     # we unquote it into a quote block that has unquote: false
     # and we also wrap the variables in var! at the AST level.
 

@@ -2,52 +2,57 @@ defmodule Zorb.Interpreter.Logic do
   @moduledoc """
   Core Z-machine implementation logic for optimized Game Capsules.
   """
-  import Bitwise
 
-  defmacro __using__(opts) do
-    quote do
-      @logic_story_data unquote(Keyword.get(opts, :story_data))
-      @before_compile Zorb.Interpreter.Logic
-    end
-  end
+  @doc """
+  Generates the complete Elixir source code for a bespoke Game Capsule module.
+  """
+  def generate_module_source(module_name, story_data) do
+    IO.puts(:stderr, "Zorb: Logic.generate_module_source for #{module_name}")
 
-  defmacro __before_compile__(env) do
-    story_data = Module.get_attribute(env.module, :logic_story_data)
+    logic_path = Path.join(Path.join(File.cwd!(), "lib/zorb/interpreter"), "logic_body.exs")
 
-    IO.puts("Zorb: Logic transformation starting for #{env.module}...")
+    template_path =
+      Path.join(Path.join(File.cwd!(), "lib/zorb/interpreter"), "logic_template.exs")
 
-    logic_path = Path.join(Path.dirname(__ENV__.file), "logic_body.exs")
-    logic_body = File.read!(logic_path)
+    logic_body_content = File.read!(logic_path)
+    template_content = File.read!(template_path)
 
-    v = :binary.at(story_data, 0)
+    # Transform logic body to handle locals and qualification
+    logic_body_ast = transform_logic_body(logic_body_content)
 
-    {v_init, sb_init, gb_init, db_init, ob_init, ab_init, pas_init, ro_init, so_init, oes_init,
-     po_init, soj_init, co_init, pto_init, utb_init} = {
-      v,
-      :binary.at(story_data, 14) <<< 8 ||| :binary.at(story_data, 15),
-      :binary.at(story_data, 12) <<< 8 ||| :binary.at(story_data, 13),
-      :binary.at(story_data, 8) <<< 8 ||| :binary.at(story_data, 9),
-      :binary.at(story_data, 10) <<< 8 ||| :binary.at(story_data, 11),
-      :binary.at(story_data, 0x18) <<< 8 ||| :binary.at(story_data, 0x19),
-      if(v <= 3, do: 1, else: 2),
-      if(v in 6..7,
-        do: (:binary.at(story_data, 0x28) <<< 8 ||| :binary.at(story_data, 0x29)) * 8,
-        else: 0
-      ),
-      if(v in 6..7,
-        do: (:binary.at(story_data, 0x2A) <<< 8 ||| :binary.at(story_data, 0x2B)) * 8,
-        else: 0
-      ),
-      if(v <= 3, do: 9, else: 14),
-      if(v <= 3, do: 4, else: 6),
-      if(v <= 3, do: 5, else: 8),
-      if(v <= 3, do: 6, else: 10),
-      if(v <= 3, do: 7, else: 12),
-      0x80000
-    }
+    # Extract header fields
+    <<
+      v::8,
+      _::8,
+      _base_pc::16,
+      dictionary_base::16,
+      object_table_base::16,
+      globals_base::16,
+      static_memory_base::16,
+      # flags
+      _::16,
+      # serial
+      _::16,
+      abbreviations_base::16,
+      _rest::binary
+    >> = story_data
 
-    alphabets =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?_#'\"/\\<-:() \r0123456789.,!?_#'\"/\\-:()"
+    # Version-specific calculations
+    {pas_init, oes_init, po_init, soj_init, co_init, pto_init} =
+      case v <= 3 do
+        true -> {1, 9, 4, 5, 6, 7}
+        false -> {2, 14, 6, 8, 10, 12}
+      end
+
+    {ro_init, so_init} =
+      case v do
+        v when v in 6..7 ->
+          <<_::160, r_off::16, s_off::16, _::binary>> = story_data
+          {r_off * 8, s_off * 8}
+
+        _ ->
+          {0, 0}
+      end
 
     unicode_table = [
       0x00E4,
@@ -138,7 +143,7 @@ defmodule Zorb.Interpreter.Logic do
       0x00FE,
       0x00DE,
       0x00A9,
-      0x2122,
+      2122,
       0x20AC,
       0x0024,
       0x0192,
@@ -194,74 +199,411 @@ defmodule Zorb.Interpreter.Logic do
     ]
 
     unicode_bin = Enum.map_join(unicode_table, fn u -> <<u::16-big>> end)
-    unicode_list = :binary.bin_to_list(unicode_bin)
-    alphabets_list = :binary.bin_to_list(alphabets)
 
-    binding = [
-      story_list: :binary.bin_to_list(story_data),
-      unicode_list: unicode_list,
-      alphabets_list: alphabets_list
-    ]
+    alphabets =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?_#'\"/\\<-:() \r0123456789.,!?_#'\"/\\-:()"
 
-    parts = [
-      "import Bitwise",
-      "require Orb",
-      "import Orb",
-      "import Orb.I32, except: [global: 1, cond: 1, and: 2, or: 2, xor: 2]",
-      "import Orb.Numeric.DSL, only: [and: 2]",
-      "alias Orb.I32",
-      "alias Orb.Memory",
-      "alias Zorb.Interpreter.Types, as: T",
-      "alias Zorb.Capsule.Host, as: ZIO",
-      "import Orb.Control",
-      "import Zorb.Interpreter.Logic.Helpers",
-      "Orb.Import.register(Zorb.Capsule.Host)",
-      "Orb.Memory.initial_data!(0, [u8: story_list])",
-      "Orb.Memory.initial_data!(0x80000, [u8: unicode_list])",
-      "Orb.Memory.initial_data!(0x81000, [u8: alphabets_list])",
-      "global do",
-      "  @pc 0",
-      "  @version #{v_init}",
-      "  @sp 0",
-      "  @fp 0",
-      "  @csp 0",
-      "  @stack_base 0x90000",
-      "  @call_stack_base 0x98000",
-      "  @globals_base #{gb_init}",
-      "  @static_memory_base #{sb_init}",
-      "  @dictionary_base #{db_init}",
-      "  @object_table_base #{ob_init}",
-      "  @object_table_start 0",
-      "  @abbreviations_base #{ab_init}",
-      "  @next_alphabet -1",
-      "  @abbrev_mode 0",
-      "  @recursion_depth 0",
-      "  @packed_address_shift #{pas_init}",
-      "  @routine_offset #{ro_init}",
-      "  @string_offset #{so_init}",
-      "  @stream3_table 0",
-      "  @stream3_active 0",
-      "  @object_entry_size #{oes_init}",
-      "  @object_parent_offset #{po_init}",
-      "  @object_sibling_offset #{soj_init}",
-      "  @object_child_offset #{co_init}",
-      "  @object_property_table_offset #{pto_init}",
-      "  @random_state 1",
-      "  @story_len #{byte_size(story_data)}",
-      "  @capabilities 0",
-      "  @zscii_state 0",
-      "  @zscii_high 0",
-      "  @unicode_table_base #{utb_init}",
-      "  @current_font 1",
-      "  @current_alphabet 0",
-      "  @halted 0",
-      "end",
-      logic_body
-    ]
+    # Prepare imports as a literal list
+    import_list = Zorb.Capsule.Host.__wasm_imports__(nil)
 
-    source = Enum.join(parts, "\n")
-    Code.eval_string(source, binding, %{env | module: env.module})
+    import_registrations =
+      Enum.map_join(import_list, "\n  ", fn imp ->
+        "@wasm_imports #{inspect(imp)}"
+      end)
 
-    nil
+    source =
+      template_content
+      |> String.replace("MOD_NAME", inspect(module_name))
+      |> String.replace("V_INIT", "#{v}")
+      |> String.replace("SB_INIT", "#{static_memory_base}")
+      |> String.replace("GB_INIT", "#{globals_base}")
+      |> String.replace("DB_INIT", "#{dictionary_base}")
+      |> String.replace("OB_INIT", "#{object_table_base}")
+      |> String.replace("AB_INIT", "#{abbreviations_base}")
+      |> String.replace("PAS_INIT", "#{pas_init}")
+      |> String.replace("RO_INIT", "#{ro_init}")
+      |> String.replace("SO_INIT", "#{so_init}")
+      |> String.replace("OES_INIT", "#{oes_init}")
+      |> String.replace("PO_INIT", "#{po_init}")
+      |> String.replace("SOJ_INIT", "#{soj_init}")
+      |> String.replace("CO_INIT", "#{co_init}")
+      |> String.replace("PTO_INIT", "#{pto_init}")
+      |> String.replace("UTB_INIT", "#{0x80000}")
+      |> String.replace("STORY_LEN", "#{byte_size(story_data)}")
+      |> String.replace("STORY_DATA", inspect(story_data, limit: :infinity))
+      |> String.replace("UNICODE_DATA", inspect(unicode_bin, limit: :infinity))
+      |> String.replace("ALPHABETS_DATA", inspect(alphabets, limit: :infinity))
+      |> String.replace("LOGIC_BODY", Macro.to_string(logic_body_ast))
+      |> String.replace("Orb.Import.register(Zorb.Capsule.Host)", import_registrations)
+
+    File.write!("tmp/last_bespoke_module.ex", source)
+    source
   end
+
+  defp transform_logic_body(content) do
+    ast = Sourceror.parse_string!(content)
+
+    # Helper to recursively find all atoms in any nested structure
+    get_all_atoms = fn node ->
+      {_, atoms} =
+        Macro.prewalk(node, MapSet.new(), fn
+          # Leaf atom
+          n, acc when is_atom(n) ->
+            {n, MapSet.put(acc, n)}
+
+          # Look inside tuples {a, b, c} - common in AST
+          tuple, acc when is_tuple(tuple) ->
+            # Add any atom elements of the tuple
+            new_acc =
+              Enum.reduce(Tuple.to_list(tuple), acc, fn
+                item, i_acc when is_atom(item) -> MapSet.put(i_acc, item)
+                _, i_acc -> i_acc
+              end)
+
+            {tuple, new_acc}
+
+          node, acc ->
+            {node, acc}
+        end)
+
+      atoms
+    end
+
+    # 1. Map out all function names
+    ast_list =
+      case ast do
+        {:__block__, _, list} -> list
+        other -> [other]
+      end
+
+    defined_funcs =
+      MapSet.new(
+        Enum.flat_map(ast_list, fn
+          {def_macro, _, [{name, _, _} | _]} when def_macro in [:def_macro, :defw, :defwp] ->
+            [name]
+
+          _ ->
+            []
+        end)
+      )
+
+    # 2. Extract break_if_halted body for inlining
+    break_if_halted_body =
+      Enum.find_value(ast_list, fn
+        {:defwp, _, [{:break_if_halted, _, _}, [do: body]]} -> body
+        _ -> nil
+      end)
+
+    # 3. Process functions
+    locals =
+      ~w(v1 v2 v3 v4 val addr byte target arg_count i num_locals old_fp ret_pc result_info parent child curr prev len header data_addr byte_addr num char stream local_val actual expected entry_len dict sum table_entry type types word is_word j old old_alpha old_pc op opc sib size)a
+
+    new_ast_list =
+      Enum.reject(ast_list, fn
+        {:defwp, _, [{:break_if_halted, _, _}, _]} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn
+        {def_macro, meta, [head | rest]} when def_macro in [:defw, :defwp] ->
+          # Change all defwp to defw to allow qualified local calls
+          def_macro = :defw
+
+          # Strip export: true from head if present
+          new_head =
+            case head do
+              {name, hmeta, hargs} when is_list(hargs) ->
+                new_hargs =
+                  Enum.map(hargs, fn
+                    kw when is_list(kw) ->
+                      Enum.reject(kw, fn
+                        {:export, _} -> true
+                        {{:__block__, _, [:export]}, _} -> true
+                        _ -> false
+                      end)
+
+                    other ->
+                      other
+                  end)
+                  |> Enum.reject(fn x -> x == [] end)
+
+                {name, hmeta, new_hargs}
+
+              _ ->
+                head
+            end
+
+          func_args = MapSet.new(extract_args(new_head))
+
+          # Transformation with state for loops
+          {transformed_rest, _} =
+            Macro.traverse(
+              rest,
+              %{stack: [], counter: 0},
+              # pre
+              fn
+                {:break_if_halted, _, _}, state ->
+                  {break_if_halted_body, state}
+
+                {:loop, l_meta, args} = node, state ->
+                  # Check for anonymous loop [do: block] or [{{:__block__, _, [:do]}, block}]
+                  is_anon =
+                    case args do
+                      [[do: _]] -> true
+                      [[{{:__block__, _, [:do]}, _}]] -> true
+                      _ -> false
+                    end
+
+                  if is_anon do
+                    block =
+                      case args do
+                        [[do: b]] -> b
+                        [[{_, b}]] -> b
+                      end
+
+                    id = state.counter + 1
+                    label = :"L#{id}"
+                    exit_label = :"ExitL#{id}"
+                    new_node = {:__loop_wrapped__, l_meta, [label, exit_label, block]}
+                    {new_node, %{state | counter: id, stack: [exit_label | state.stack]}}
+                  else
+                    {node, state}
+                  end
+
+                {:break, b_meta, args}, state ->
+                  exit_label = List.first(state.stack)
+                  new_node = {:__break_wrapped__, b_meta, [exit_label, args]}
+                  {new_node, state}
+
+                {:case, c_meta, args}, state ->
+                  val = List.first(args)
+                  blocks = List.last(args)
+
+                  clauses =
+                    case blocks do
+                      [do: cs] ->
+                        cs
+
+                      [{{:__block__, _, [:do]}, cs}] ->
+                        cs
+
+                      kw when is_list(kw) ->
+                        kw[:do]
+
+                      _ ->
+                        if is_list(blocks) do
+                          Enum.find_value(blocks, fn
+                            {:do, cs} -> cs
+                            {{:__block__, _, [:do]}, cs} -> cs
+                            _ -> nil
+                          end)
+                        else
+                          nil
+                        end
+                    end
+
+                  if clauses do
+                    new_node = transform_case_to_if_chain(val, clauses)
+                    {new_node, state}
+                  else
+                    {{:case, c_meta, args}, state}
+                  end
+
+                {:return, r_meta, args}, state ->
+                  # Fix return/1 qualification
+                  new_node =
+                    case args do
+                      [] ->
+                        {{:., r_meta,
+                          [{:__aliases__, [alias: false], [:Orb, :Control]}, :return]}, r_meta,
+                         []}
+
+                      _ ->
+                        {{:., r_meta, [{:__aliases__, [alias: false], [:Orb, :DSL]}, :return]},
+                         r_meta, args}
+                    end
+
+                  {new_node, state}
+
+                {{:., r_meta, [{:__aliases__, ameta, [:Orb, :Control]}, :return]}, r_meta2, args},
+                state ->
+                  new_node =
+                    case args do
+                      [] ->
+                        {{:., r_meta, [{:__aliases__, ameta, [:Orb, :Control]}, :return]},
+                         r_meta2, []}
+
+                      _ ->
+                        {{:., r_meta, [{:__aliases__, ameta, [:Orb, :DSL]}, :return]}, r_meta2,
+                         args}
+                    end
+
+                  {new_node, state}
+
+                {name, f_meta, f_args}, state
+                when is_atom(name) and
+                       name not in [
+                         :if,
+                         :loop,
+                         :break,
+                         :continue,
+                         :break_if,
+                         :v_at_least,
+                         :__loop_wrapped__,
+                         :__break_wrapped__
+                       ] ->
+                  if MapSet.member?(defined_funcs, name) do
+                    new_node =
+                      {{:., f_meta, [{:__aliases__, [alias: false], [:__MODULE__]}, name]},
+                       f_meta, f_args || []}
+
+                    {new_node, state}
+                  else
+                    {{name, f_meta, f_args}, state}
+                  end
+
+                nil, state ->
+                  # Transform nil to nop() inside function bodies
+                  new_node =
+                    {{:., [], [{:__aliases__, [alias: false], [:Orb, :DSL]}, :nop]}, [], []}
+
+                  {new_node, state}
+
+                node, state ->
+                  {node, state}
+              end,
+              # post
+              fn
+                {:__loop_wrapped__, _l_meta, [label, exit_label, block]}, state ->
+                  new_node =
+                    quote do
+                      Orb.Control.block unquote(exit_label) do
+                        Orb.DSL.loop unquote(label) do
+                          unquote(block)
+                        end
+                      end
+                    end
+
+                  {_, new_stack} = List.pop_at(state.stack, 0)
+                  {new_node, %{state | stack: new_stack}}
+
+                {:__break_wrapped__, b_meta, [exit_label, args]}, state ->
+                  new_args =
+                    case args do
+                      [] -> [exit_label]
+                      [{:if, _, [cond]}] -> [exit_label, [if: cond]]
+                      [[if: cond]] -> [exit_label, [if: cond]]
+                      _ -> [exit_label | args]
+                    end
+
+                  new_node =
+                    {{:., b_meta, [{:__aliases__, [alias: false], [:Orb, :Control]}, :break]},
+                     b_meta, new_args}
+
+                  {new_node, state}
+
+                node, state ->
+                  {node, state}
+              end
+            )
+
+          used_locals =
+            get_all_atoms.(transformed_rest)
+            |> MapSet.new()
+            |> MapSet.intersection(MapSet.new(locals))
+            |> MapSet.difference(func_args)
+            |> MapSet.difference(defined_funcs)
+
+          locals_list =
+            Enum.map(Enum.sort(used_locals), fn name ->
+              {name, {:__aliases__, [alias: false], [:Orb, :I32]}}
+            end)
+
+          new_args =
+            if locals_list == [] do
+              [new_head | transformed_rest]
+            else
+              case Enum.split(transformed_rest, -1) do
+                {prefix, [body]} -> [new_head | prefix] ++ [locals_list, body]
+                _ -> [new_head | transformed_rest]
+              end
+            end
+
+          {def_macro, meta, new_args}
+
+        node ->
+          node
+      end)
+
+    {:__block__, [], new_ast_list}
+  end
+
+  defp transform_case_to_if_chain(val, clauses) do
+    Enum.reduce(Enum.reverse(clauses), nil, fn
+      {:->, meta, [ps, body]}, acc ->
+        # body can be nil or a block
+        body =
+          if is_nil(body),
+            do: {{:., [], [{:__aliases__, [alias: false], [:Orb, :DSL]}, :nop]}, [], []},
+            else: body
+
+        cond_node =
+          case ps do
+            [{:_, _, _}] ->
+              :catch_all
+
+            [p] ->
+              {{:., meta, [{:__aliases__, [alias: false], [:Orb, :I32]}, :eq]}, meta, [val, p]}
+
+            ps_list ->
+              Enum.reduce(ps_list, nil, fn p, iacc ->
+                eq =
+                  {{:., meta, [{:__aliases__, [alias: false], [:Orb, :I32]}, :eq]}, meta,
+                   [val, p]}
+
+                if iacc do
+                  {{:., meta, [{:__aliases__, [alias: false], [:Orb, :I32]}, :or]}, meta,
+                   [iacc, eq]}
+                else
+                  eq
+                end
+              end)
+          end
+
+        if cond_node == :catch_all do
+          body
+        else
+          if acc do
+            {:if, meta, [cond_node, [do: body, else: acc]]}
+          else
+            {:if, meta, [cond_node, [do: body]]}
+          end
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp extract_args({_name, _meta, args}) when is_list(args) do
+    Enum.flat_map(args, fn
+      list when is_list(list) ->
+        Enum.map(list, fn
+          {{:__block__, _, [name]}, _type} when is_atom(name) -> name
+          {name, _type} when is_atom(name) -> name
+          _ -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      {name, _, nil} when is_atom(name) ->
+        [name]
+
+      {:__block__, _, [name]} when is_atom(name) ->
+        [name]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp extract_args(_), do: []
 end

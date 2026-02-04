@@ -11,4 +11,5 @@ defmodule Zorb.Capsule.Host do
   defw(get_capabilities(), I32)
   defw(halt(reason: I32, pc: I32, opcode: I32))
   defw(tokenize(text: I32, parse: I32, dict: I32, flag: I32))
+  defw(log_step(pc: I32, opcode: I32))
 end

@@ -1,14 +1,13 @@
 defmodule Zorb.Runner do
-  @moduledoc """
-  Executes Z-machine stories using the bespoke Capsule architecture.
-  """
-  alias Zorb.Capsule
+  @moduledoc false
+  alias Zorb.Interpreter
 
   def run(path, owner \\ nil) do
     owner = owner || self()
+    story = File.read!(path)
 
-    # 1. Compile the story into an optimized bespoke WASM binary
-    wasm_bytes = Capsule.compile(path)
+    # Get Extension Table address from Header word 0x34
+    if story == nil, do: raise("No story provided")
 
     # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner}
     {:ok, agent} =
@@ -16,14 +15,26 @@ defmodule Zorb.Runner do
 
     imports = build_imports(agent)
 
-    # 2. Instantiate the WASM
-    {:ok, instance} = Wasmex.start_link(%{bytes: wasm_bytes, imports: imports})
+    wat = Orb.to_wat(Interpreter)
+    {:ok, instance} = Wasmex.start_link(%{bytes: wat, imports: imports})
     Agent.update(agent, fn s -> %{s | instance: instance} end)
 
-    # 3. Init with stack at 0xA0000
+    {:ok, memory} = Wasmex.memory(instance)
+    {:ok, store} = Wasmex.store(instance)
+    Wasmex.Memory.write_binary(store, memory, 0, story)
+
+    # Call load_story to set @story_len and fill memory
+    {:ok, _} = Wasmex.call_function(instance, "load_story", [0, byte_size(story)])
+
+    # Init with stack at 0xA0000 (safely above 512KB story limit)
     {:ok, _} = Wasmex.call_function(instance, "init", [0xA0000])
 
-    # 4. Run the loop in a separate task
+    # Load default Unicode table at 0x80000
+    default_unicode = Zorb.Interpreter.unicode_table()
+    binary_table = for char <- default_unicode, into: <<>>, do: <<char::integer-size(16)>>
+    Wasmex.Memory.write_binary(store, memory, 0x80000, binary_table)
+
+    # Run the loop in a separate task so this process can receive input messages
     task = Task.async(fn -> loop(instance, agent, 0) end)
 
     message_loop(task, agent)
@@ -97,7 +108,9 @@ defmodule Zorb.Runner do
     case Agent.get(agent, fn s -> s.buffer end) do
       [char | rest] ->
         Agent.update(agent, fn s -> %{s | buffer: rest} end)
+
         zscii = if char == 10, do: 13, else: char
+
         zscii
 
       [] ->
@@ -116,6 +129,7 @@ defmodule Zorb.Runner do
   end
 
   defp get_capabilities_impl do
+    # Bit 3: Font 3 (character graphics) available
     fn _ctx -> 0x08 end
   end
 
@@ -128,6 +142,7 @@ defmodule Zorb.Runner do
     end
   end
 
+  # Safety limit of 10 million steps
   @max_steps 10_000_000
 
   defp loop(instance, agent, steps) when steps < @max_steps do
@@ -145,18 +160,33 @@ defmodule Zorb.Runner do
 
   defp loop(_instance, _agent, _steps), do: :ok
 
-  defp handle_halt({0, _pc, _}), do: :ok
-  defp handle_halt({1, pc, _}), do: IO.puts("Halt: Stack overflow at PC #{pc}")
-  :error
-  defp handle_halt({2, pc, _}), do: IO.puts("Halt: Stack underflow at PC #{pc}")
-  :error
-  defp handle_halt({3, pc, opcode}), do: IO.puts("Halt: Illegal opcode #{opcode} at PC #{pc}")
-  :error
-  defp handle_halt({4, pc, _}), do: IO.puts("Halt: Static memory write at PC #{pc}")
-  :error
+  defp handle_halt({0, _pc, _}) do
+    # Normal halt
+    :ok
+  end
 
-  defp handle_halt({code, pc, extra}),
-    do: IO.puts("Halt: Unknown code #{code} at PC #{pc} (extra: #{extra})")
+  defp handle_halt({1, pc, _}) do
+    IO.puts("Halt: Stack overflow at PC #{pc}")
+    :error
+  end
 
-  :error
+  defp handle_halt({2, pc, _}) do
+    IO.puts("Halt: Stack underflow at PC #{pc}")
+    :error
+  end
+
+  defp handle_halt({3, pc, opcode}) do
+    IO.puts("Halt: Illegal opcode #{opcode} at PC #{pc}")
+    :error
+  end
+
+  defp handle_halt({4, pc, _}) do
+    IO.puts("Halt: Static memory write at PC #{pc}")
+    :error
+  end
+
+  defp handle_halt({code, pc, extra}) do
+    IO.puts("Halt: Unknown code #{code} at PC #{pc} (extra: #{extra})")
+    :error
+  end
 end
