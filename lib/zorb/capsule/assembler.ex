@@ -78,6 +78,9 @@ defmodule Zorb.Capsule.Assembler do
     alphabets_bin =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?_#'\"/\\\\\\\\<-:() \r0123456789.,!?_#'\"/\\\\\\\\-:()"
 
+    {hash_table_bin, table_mask} =
+      generate_dictionary_hash_table(story_data, dictionary_base, version)
+
     quote do
       defmodule unquote(module_name) do
         use Orb
@@ -95,6 +98,7 @@ defmodule Zorb.Capsule.Assembler do
         Orb.Memory.initial_data!(0, unquote(story_data))
         Orb.Memory.initial_data!(0x80000, unquote(unicode_bin))
         Orb.Memory.initial_data!(0x81000, unquote(alphabets_bin))
+        Orb.Memory.initial_data!(0x82000, unquote(hash_table_bin))
 
         global do
           @pc 0
@@ -132,10 +136,99 @@ defmodule Zorb.Capsule.Assembler do
           @current_font 1
           @current_alphabet 0
           @halted 0
+          @encoded_w1 0
+          @encoded_w2 0
+          @encoded_w3 0
         end
 
+        unquote(generate_lookup_dictionary_ast(table_mask))
         unquote(logic_ast)
       end
+    end
+  end
+
+  defp generate_lookup_dictionary_ast(table_mask) do
+    quote do
+      # O(1) Dictionary Lookup
+      defw lookup_dictionary(w1: I32, w2: I32, w3: I32), T.Address, slot: I32, addr: I32 do
+        # hash = (w1 ^ w2 ^ w3) & MASK
+        slot = I32.band(I32.xor(w1, I32.xor(w2, w3)), unquote(table_mask))
+
+        loop Search do
+          # 16 bytes per slot
+          addr = I32.add(0x82000, I32.shl(slot, 4))
+
+          # Check if empty (addr == 0)
+          if I32.eq(Memory.load!(I32, I32.add(addr, 12)), 0) do
+            return(0)
+          end
+
+          # Compare words
+          if I32.eq(Memory.load!(I32, addr), w1) do
+            if I32.eq(Memory.load!(I32, I32.add(addr, 4)), w2) do
+              if I32.eq(Memory.load!(I32, I32.add(addr, 8)), w3) do
+                return(Memory.load!(I32, I32.add(addr, 12)))
+              end
+            end
+          end
+
+          slot = I32.band(I32.add(slot, 1), unquote(table_mask))
+          Search.continue()
+        end
+      end
+    end
+  end
+
+  defp generate_dictionary_hash_table(story_data, dict_base, version) do
+    <<_::binary-size(dict_base), num_sep::8, _::binary>> = story_data
+    header_end = dict_base + 1 + num_sep
+    <<_::binary-size(header_end), entry_len::8, num_entries::16, _::binary>> = story_data
+    entries_start = header_end + 3
+
+    # Use 2048 slots for up to 1024 entries to keep load factor low
+    table_size = 2048
+    mask = table_size - 1
+
+    # Table entry: [w1:32, w2:32, w3:32, addr:32] = 16 bytes
+    table = for _ <- 1..table_size, do: {0, 0, 0, 0}
+    table = List.to_tuple(table)
+
+    final_table =
+      Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
+        addr = entries_start + i * entry_len
+        
+        {w1, w2, w3} =
+          case {version <= 3, story_data} do
+            {true, <<_::binary-size(addr), w::32, _::binary>>} ->
+              {w, 0, 0}
+
+            {false, <<_::binary-size(addr), w1::32, w2::16, _::binary>>} ->
+              {w1, w2, 0}
+          end
+
+        # Simple hash
+        hash = Bitwise.bxor(w1, Bitwise.bxor(w2, w3)) |> Bitwise.band(mask)
+
+        # Linear probing
+        insert_at_slot(acc, hash, w1, w2, w3, addr, mask)
+      end)
+
+    bin =
+      for i <- 0..(table_size - 1), into: <<>> do
+        {w1, w2, w3, addr} = elem(final_table, i)
+        <<w1::32-little, w2::32-little, w3::32-little, addr::32-little>>
+      end
+
+    {bin, mask}
+  end
+
+  defp insert_at_slot(table, slot, w1, w2, w3, addr, mask) do
+    case elem(table, slot) do
+      {0, 0, 0, 0} ->
+        put_elem(table, slot, {w1, w2, w3, addr})
+
+      _ ->
+        insert_at_slot(table, Bitwise.band(slot + 1, mask), w1, w2, w3, addr, mask)
     end
   end
 

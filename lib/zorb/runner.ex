@@ -47,7 +47,7 @@ defmodule Zorb.Runner do
           {:zorb_input, char} ->
             char =
               case char do
-                c when is_binary(c) -> :binary.first(c)
+                <<c::8, _::binary>> -> c
                 c when is_integer(c) -> c
               end
 
