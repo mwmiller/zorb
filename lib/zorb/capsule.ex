@@ -5,6 +5,7 @@ defmodule Zorb.Capsule do
   This module provides the ergonomics for transforming raw Z-machine story files
   into optimized, standalone WASM binaries with a persistent caching layer.
   """
+  alias Zorb.Capsule.Assembler
 
   # Increment this version whenever the interpreter logic or memory layout changes.
   # This ensures that cached artifacts are invalidated when the compiler is updated.
@@ -86,23 +87,20 @@ defmodule Zorb.Capsule do
         :ok
 
       false ->
-        # 1. Generate the source code for the module
-        IO.puts(:stderr, "Zorb: Calling Logic.generate_module_source...")
-        source_code = Zorb.Interpreter.Logic.generate_module_source(module_name, story_data)
-        IO.puts(:stderr, "Zorb: Logic.generate_module_source returned.")
+        # 1. Generate the AST for the module
+        IO.puts(:stderr, "Zorb: Calling Assembler.assemble...")
+        module_ast = Assembler.assemble(story_data, module_name)
 
-        # 2. Compile the source code into the current VM
-        IO.puts(:stderr, "Zorb: Evaluating bespoke module into VM...")
+        # 2. Evaluate the AST into the current VM
+        IO.puts(:stderr, "Zorb: Evaluating bespoke module AST into VM...")
 
         try do
-          # eval_string can also define modules
-          Code.eval_string(source_code)
+          # File.write!("tmp/last_bespoke_module.ex", Sourceror.to_string(module_ast))
+          Code.eval_quoted(module_ast)
         rescue
           e ->
+            File.write!("tmp/failed_bespoke_module.ex", Sourceror.to_string(module_ast))
             IO.puts(:stderr, "Zorb: Evaluation CRASHED: #{inspect(e)}")
-            IO.puts(:stderr, "--- FAILED SOURCE START ---")
-            IO.puts(:stderr, source_code)
-            IO.puts(:stderr, "--- FAILED SOURCE END ---")
             reraise e, __STACKTRACE__
         end
 

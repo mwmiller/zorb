@@ -1,26 +1,26 @@
 # Zorb Project Handoff - February 4, 2026
 
-## Current Status: STABLE BASE ACHIEVED
-The project has successfully reached a stable baseline where the core Z-machine logic is fully compatible with the current `Orb` (0.2.2) DSL. All **8 prover integration tests** are passing.
+## Current Status: AST-BASED PIPELINE OPERATIONAL
+We have successfully implemented the **AST-based "Baking Factory"** architecture. This transition resolves the issues with string-based code generation and `Orb` macro expansion fragility.
 
-## The Struggle: The "Baking Factory" vs. Elixir Module Lifecycle
-The initial attempt to implement the **Game Capsule** architecture relied on dynamic source code generation (`String.replace`) followed by `Code.eval_string`. This approach proved extremely fragile due to:
-1.  **Attribute Persistence**: `Orb` relies heavily on module attributes (`@wasm_imports`, etc.) which do not always persist or expand correctly when modules are defined inside an `eval_string` or a macro.
-2.  **Operator Overloading & Guards**: The proven interpreter used `case` statements with guards (e.g., `v when v < 16`). Because `Orb` overloads operators for WASM variable references, these guards failed at compile-time because they couldn't be evaluated by the standard Elixir guard system.
-3.  **Case Matching**: Pattern matching directly on WASM local variables (which are structs like `%Orb.VariableReference{}`) in `case` statements is not supported in the current version of `Orb`.
+## Key Accomplishments in this Session
+1.  **Programmatic Assembler**: Created `Zorb.Capsule.Assembler`, which extracts the Elixir AST directly from the "proven" source in `lib/zorb/interpreter.ex`.
+2.  **Compile-Time Pruning**: Implemented Elixir-time branch pruning. The assembler evaluates `@version` checks at compile-time and strips out logic not relevant to the target story version.
+3.  **Bespoke Data Baking**: Story bytes, Alphabets, and Unicode tables are now baked into WASM `data` segments at fixed addresses (`0x00000`, `0x81000`, `0x80000` respectively).
+4.  **Stable Environment**: The bespoke modules now perfectly mirror the `Zorb.Interpreter` environment (imports, aliases), resolving previous compilation errors.
+5.  **Verified Compliance**: All 8 prover integration tests (V1, V2, V3, V5, V7) are passing through the new pipeline.
 
-## The New Vision: Programmatic AST Transformation
-To overcome these issues, we have pivoted to a more robust "AST-first" approach:
-1.  **Proven Logic Base**: The interpreter logic has been refactored to use `if/else` chains instead of `case` blocks for WASM variables. This is now the "proven base" in `lib/zorb/interpreter.ex`.
-2.  **Extracted Logic Body**: The core globals and functions have been extracted into `lib/zorb/interpreter/logic_body.exs`.
-3.  **Future Game Capsules**: Instead of `eval_string`, the `Zorb.Capsule` system will transition to programmatically constructing `Orb.ModuleDefinition` structs. It will take the proven AST from `logic_body.exs` and inject story-specific data segments and globals at the AST level before final WASM generation.
-
-## Key Changes in this Session
-- **Refactored `Zorb.Interpreter`**: Replaced all problematic `case` statements with `if/else` blocks.
-- **Fixed Type Duplication**: Moved types to a dedicated `Zorb.Interpreter.Types` module to avoid redefinition errors.
-- **Import Stabilization**: Corrected the `zio` namespace import registration.
-- **Testing**: Updated `Zorb.Runner` and `Zorb.ProverTest` to ensure output messages are correctly routed to the test process.
+## The Architecture
+- **Source of Truth**: `lib/zorb/interpreter.ex` contains the full, multi-version Z-machine logic.
+- **The Factory**: `Zorb.Capsule.Assembler.assemble/2` takes story data and a module name, transforms the interpreter AST, and returns a bespoke module AST.
+- **The Engine**: `Zorb.Capsule` uses the assembler to generate, evaluate, and compile the capsule into WASM.
 
 ## Immediate Next Steps
-- Finalize the `Zorb.Capsule` transition to use programmatic AST assembly instead of the current `Logic.generate_module_source` string-based approach.
-- Ensure the `v_at_least` macro correctly handles `nop()` for empty branches to satisfy `Orb`'s requirement that every block returns a valid WASM instruction.
+- **O(1) Dictionary Lookups**: Refactor the dictionary lookup to use a WASM-side hash table generated during the baking phase.
+- **Input Parsing Hooks**: Inject the "Slash Command" interceptor and social injection points into the capsule AST.
+- **V8 Testing**: Enable and verify Z8 story files using the new pipeline.
+- **Zorbit Social Layer**: Start implementing the host-side command interception in `Zorb.Runner`.
+
+## Cleaned Up
+- Removed the redundant `logic_body.exs`, `logic_template.exs`, and other outdated "dead end" files.
+- Unified the interpreter logic into a single source.
