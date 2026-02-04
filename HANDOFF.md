@@ -15,6 +15,9 @@ We have successfully implemented the **AST-based "Baking Factory"** architecture
 - **The Factory**: `Zorb.Capsule.Assembler.assemble/2` takes story data and a module name, transforms the interpreter AST, and returns a bespoke module AST.
 - **The Engine**: `Zorb.Capsule` uses the assembler to generate, evaluate, and compile the capsule into WASM.
 
+## Known Issue: AST Round-trip & Macro Expansion
+Current integration of `Capsule.compile` into `Zorb.Runner` is pending resolution of a `FunctionClauseError` in `Orb.DSL.Defw.defw/3`. This occurs when evaluating the transformed AST because `Sourceror.to_string` round-tripping strips or alters metadata that `Orb` macros rely on. For now, `Runner` continues to use the generic `Interpreter` module to maintain passing tests.
+
 ## Immediate Next Steps
 - **O(1) Dictionary Lookups**: Refactor the dictionary lookup to use a WASM-side hash table generated during the baking phase.
 - **Input Parsing Hooks**: Inject the "Slash Command" interceptor and social injection points into the capsule AST.

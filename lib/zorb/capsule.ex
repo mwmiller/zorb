@@ -124,7 +124,10 @@ defmodule Zorb.Capsule do
   Generates a unique cache key based on compiler version and story header.
   """
   def generate_cache_key(story_data) do
-    header = :binary.part(story_data, 0, min(byte_size(story_data), 64))
+    header = case story_data do
+      <<header::binary-size(64), _::binary>> -> header
+      header -> header
+    end
     header_hash = :crypto.hash(:sha256, header) |> Base.encode16(case: :lower)
     size = byte_size(story_data)
 

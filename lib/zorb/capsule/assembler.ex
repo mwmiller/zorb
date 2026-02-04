@@ -5,7 +5,7 @@ defmodule Zorb.Capsule.Assembler do
   require Logger
 
   def assemble(story_data, module_name) do
-    version = :binary.at(story_data, 0)
+    <<version::8, _::binary>> = story_data
     logic_ast = get_fat_ast()
     pruned_ast = prune_version_branches(logic_ast, version)
     assemble_module_ast(module_name, version, story_data, pruned_ast)
