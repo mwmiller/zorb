@@ -12,7 +12,7 @@ We have successfully implemented the **AST-based "Baking Factory"** architecture
 
 ## The Architecture
 - **Source of Truth**: `lib/zorb/interpreter.ex` contains the full, multi-version Z-machine logic.
-- **The Factory**: `Zorb.Capsule.Assembler.assemble/2` takes story data and a module name, transforms the interpreter AST, and returns a bespoke module AST.
+- **The Factory**: `Zorb.Capsule.Assembler.assemble/2` takes story data and a module name, transforms the interpreter AST, and returns a bespoke module AST. It also prunes the story data (zeroing out dictionary entries) to reduce the memory footprint.
 - **The Engine**: `Zorb.Capsule` uses the assembler to generate, evaluate, and compile the capsule into WASM.
 
 ## Known Issue: AST Round-trip & Macro Expansion

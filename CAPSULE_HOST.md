@@ -1,6 +1,6 @@
 # Zorb Capsule Host Interface
 
-A Zorb Game Capsule is a standalone WASM binary that implements the Z-machine logic. To function, it requires a host environment (the "Host") to provide specific I/O and system capabilities via WASM imports in the `zio` namespace.
+A Zorb Game Capsule is a standalone WASM binary that implements the Z-machine logic. It acts as a black box that communicates with a host environment (the "Host") via WASM imports in the `zio` namespace.
 
 ## Required Interface
 
@@ -37,14 +37,13 @@ Returns a bitmask of supported features.
 - `Bit 4 (0x10)`: Color available.
 - `Bit 5 (0x20)`: Timed input available.
 
-### `tokenize(text_addr: i32, parse_addr: i32, dict_addr: i32, flag: i32)`
-If the host provides an optimized tokenizer, the Capsule can delegate Z-machine dictionary lookups here. (Currently required by Zorb logic).
+## Appendix: Internal Memory Layout
 
-## Memory Layout
+The following memory locations are used internally by the Capsule. The Host is **not required** to access these, but they are documented for transparency and debugging.
 
-The Host should be aware of the following fixed memory locations in the Capsule:
-- `0x00000`: Raw Z-story data.
-- `0x80000`: Unicode Translation Table (if applicable).
+- `0x00000`: Story Memory (Header, Dynamic Memory, Static Data, Z-code).
+- `0x80000`: Unicode Translation Table.
 - `0x81000`: Alphabet Tables.
+- `0x82000`: Dictionary Hash Table (O(1) lookups).
 - `0x90000`: Z-stack.
 - `0x98000`: Call Stack.

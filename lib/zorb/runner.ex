@@ -2,7 +2,7 @@ defmodule Zorb.Runner do
   @moduledoc false
   alias Zorb.Interpreter
 
-  def run(path, owner \\ nil) do
+  def run(path, owner \\ nil, opts \\ []) do
     owner = owner || self()
     story = File.read!(path)
 
@@ -13,7 +13,12 @@ defmodule Zorb.Runner do
     {:ok, agent} =
       Agent.start_link(fn -> %{instance: nil, buffer: [], halt: nil, owner: owner} end)
 
-    imports = build_imports(agent)
+    base_imports = build_imports(agent)
+    overrides = Keyword.get(opts, :imports, %{})
+
+    # Merge overrides into zio namespace
+    merged_zio = Map.merge(base_imports["zio"], Map.get(overrides, "zio", %{}))
+    imports = Map.put(base_imports, "zio", merged_zio)
 
     wat = Orb.to_wat(Interpreter)
     {:ok, instance} = Wasmex.start_link(%{bytes: wat, imports: imports})

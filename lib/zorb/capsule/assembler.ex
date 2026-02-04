@@ -25,16 +25,17 @@ defmodule Zorb.Capsule.Assembler do
       {{:., _, [{:__aliases__, _, [:Orb, :Import]}, :register]}, _, _} -> true
       {{:., _, [{:__aliases__, _, [:Memory]}, :pages]}, _, _} -> true
       {:global, _, _} -> true
+      {:defw, _, [{:lookup_dictionary, _, _} | _]} -> true
       _ -> false
     end)
     |> then(fn filtered_body -> {:__block__, [], filtered_body} end)
   end
 
-  defp prune_version_branches(ast, version) do
+  def prune_version_branches(ast, version) do
     Macro.prewalk(ast, fn
       {:if, _meta,
-       [{{:., _, [{:__aliases__, _, [:I32]}, op]}, _, [{:@, _, [{:version, _, _}]}, v]}, blocks]}
-      when op in [:ge_u, :le_u, :lt_u, :eq, :ne] ->
+       [{{:., _, [{:__aliases__, _, aliases}, op]}, _, [{:@, _, [{:version, _, _}]}, v]}, blocks]}
+      when op in [:ge_u, :le_u, :lt_u, :eq, :ne] and aliases in [[:I32], [:Orb, :I32]] ->
         yes = blocks[:do]
         no = blocks[:else] || quote(do: Orb.DSL.nop())
 
@@ -62,6 +63,13 @@ defmodule Zorb.Capsule.Assembler do
     {globals_base, static_memory_base, dictionary_base, abbreviations_base, object_table_base} =
       extract_header_fields(story_data)
 
+    # 1. Generate Dictionary Hash Table
+    {hash_table_bin, table_mask} =
+      generate_dictionary_hash_table(story_data, dictionary_base, version)
+
+    # 2. Prune story data (zero out dictionary entries)
+    pruned_story_data = prune_story_data(story_data, dictionary_base)
+
     # Version-specific calculations
     {pas_init, oes_init, po_init, soj_init, co_init, pto_init} =
       calculate_version_constants(version)
@@ -72,9 +80,6 @@ defmodule Zorb.Capsule.Assembler do
 
     alphabets_bin =
       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?_#'\"/\\\\\\\\<-:() \r0123456789.,!?_#'\"/\\\\\\\\-:()"
-
-    {hash_table_bin, table_mask} =
-      generate_dictionary_hash_table(story_data, dictionary_base, version)
 
     quote do
       defmodule unquote(module_name) do
@@ -90,7 +95,7 @@ defmodule Zorb.Capsule.Assembler do
 
         Orb.Import.register(Zorb.Capsule.Host)
 
-        Orb.Memory.initial_data!(0, unquote(story_data))
+        Orb.Memory.initial_data!(0, unquote(pruned_story_data))
         Orb.Memory.initial_data!(0x80000, unquote(unicode_bin))
         Orb.Memory.initial_data!(0x81000, unquote(alphabets_bin))
         Orb.Memory.initial_data!(0x82000, unquote(hash_table_bin))
@@ -143,8 +148,9 @@ defmodule Zorb.Capsule.Assembler do
   end
 
   defp extract_header_fields(story_data) do
-    <<_v::8, _::8, _::16, dictionary_base::16, object_table_base::16, globals_base::16,
-      static_memory_base::16, _::32, abbreviations_base::16, _rest::binary>> = story_data
+    <<_v::8, _f1::8, _rel::16, _hmb::16, _pc::16, dictionary_base::16, object_table_base::16,
+      globals_base::16, static_memory_base::16, _f2::16, _serial::binary-size(6),
+      abbreviations_base::16, _rest::binary>> = story_data
 
     {globals_base, static_memory_base, dictionary_base, abbreviations_base, object_table_base}
   end
@@ -161,6 +167,19 @@ defmodule Zorb.Capsule.Assembler do
           {r * 8, s * 8}
         ),
       else: {0, 0}
+  end
+
+  defp prune_story_data(data, dict_base) do
+    # Zero out Dictionary entries
+    <<_::binary-size(dict_base), num_sep::8, _::binary>> = data
+    header_end = dict_base + 1 + num_sep
+    <<_::binary-size(header_end), entry_len::8, num_entries::16, _::binary>> = data
+
+    entries_start = header_end + 3
+    entries_len = num_entries * entry_len
+
+    <<prefix::binary-size(entries_start), _::binary-size(entries_len), suffix::binary>> = data
+    prefix <> <<0::size(entries_len)-unit(8)>> <> suffix
   end
 
   defp generate_lookup_dictionary_ast(table_mask) do
@@ -197,7 +216,7 @@ defmodule Zorb.Capsule.Assembler do
     end
   end
 
-  defp generate_dictionary_hash_table(story_data, dict_base, version) do
+  def generate_dictionary_hash_table(story_data, dict_base, version) do
     <<_::binary-size(dict_base), num_sep::8, _::binary>> = story_data
     header_end = dict_base + 1 + num_sep
     <<_::binary-size(header_end), entry_len::8, num_entries::16, _::binary>> = story_data
@@ -216,12 +235,12 @@ defmodule Zorb.Capsule.Assembler do
         addr = entries_start + i * entry_len
 
         {w1, w2, w3} =
-          case {version <= 3, story_data} do
-            {true, <<_::binary-size(addr), w::32, _::binary>>} ->
-              {w, 0, 0}
-
-            {false, <<_::binary-size(addr), w1::32, w2::16, _::binary>>} ->
-              {w1, w2, 0}
+          if version <= 3 do
+            <<_::binary-size(addr), w::32, _::binary>> = story_data
+            {w, 0, 0}
+          else
+            <<_::binary-size(addr), w1::32, w2::16, _::binary>> = story_data
+            {w1, w2, 0}
           end
 
         # Simple hash
