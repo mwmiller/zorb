@@ -58,20 +58,15 @@ defmodule Zorb.Capsule.Assembler do
   end
 
   defp assemble_module_ast(module_name, version, story_data, logic_ast) do
-    <<_v::8, _::8, _::16, dictionary_base::16, object_table_base::16, globals_base::16,
-      static_memory_base::16, _::32, abbreviations_base::16, _rest::binary>> = story_data
+    # Extract header fields for initial values
+    {globals_base, static_memory_base, dictionary_base, abbreviations_base, object_table_base} =
+      extract_header_fields(story_data)
 
+    # Version-specific calculations
     {pas_init, oes_init, po_init, soj_init, co_init, pto_init} =
-      if version <= 3, do: {1, 9, 4, 5, 6, 7}, else: {2, 14, 6, 8, 10, 12}
+      calculate_version_constants(version)
 
-    {ro_init, so_init} =
-      if version in 6..7,
-        do:
-          (
-            <<_::320, r::16, s::16, _::binary>> = story_data
-            {r * 8, s * 8}
-          ),
-        else: {0, 0}
+    {ro_init, so_init} = calculate_offsets(version, story_data)
 
     unicode_bin = generate_unicode_binary()
 
@@ -147,6 +142,27 @@ defmodule Zorb.Capsule.Assembler do
     end
   end
 
+  defp extract_header_fields(story_data) do
+    <<_v::8, _::8, _::16, dictionary_base::16, object_table_base::16, globals_base::16,
+      static_memory_base::16, _::32, abbreviations_base::16, _rest::binary>> = story_data
+
+    {globals_base, static_memory_base, dictionary_base, abbreviations_base, object_table_base}
+  end
+
+  defp calculate_version_constants(version) do
+    if version <= 3, do: {1, 9, 4, 5, 6, 7}, else: {2, 14, 6, 8, 10, 12}
+  end
+
+  defp calculate_offsets(version, story_data) do
+    if version in 6..7,
+      do:
+        (
+          <<_::320, r::16, s::16, _::binary>> = story_data
+          {r * 8, s * 8}
+        ),
+      else: {0, 0}
+  end
+
   defp generate_lookup_dictionary_ast(table_mask) do
     quote do
       # O(1) Dictionary Lookup
@@ -163,17 +179,19 @@ defmodule Zorb.Capsule.Assembler do
             return(0)
           end
 
-          # Compare words
-          if I32.eq(Memory.load!(I32, addr), w1) do
-            if I32.eq(Memory.load!(I32, I32.add(addr, 4)), w2) do
-              if I32.eq(Memory.load!(I32, I32.add(addr, 8)), w3) do
-                return(Memory.load!(I32, I32.add(addr, 12)))
-              end
-            end
-          end
+          maybe_return_dict_addr(addr, w1, w2, w3)
 
           slot = I32.band(I32.add(slot, 1), unquote(table_mask))
           Search.continue()
+        end
+      end
+
+      defwp maybe_return_dict_addr(addr: I32, w1: I32, w2: I32, w3: I32) do
+        # Compare words
+        if I32.eq(Memory.load!(I32, addr), w1) and
+             I32.eq(Memory.load!(I32, I32.add(addr, 4)), w2) and
+             I32.eq(Memory.load!(I32, I32.add(addr, 8)), w3) do
+          return(Memory.load!(I32, I32.add(addr, 12)))
         end
       end
     end
@@ -196,7 +214,7 @@ defmodule Zorb.Capsule.Assembler do
     final_table =
       Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
         addr = entries_start + i * entry_len
-        
+
         {w1, w2, w3} =
           case {version <= 3, story_data} do
             {true, <<_::binary-size(addr), w::32, _::binary>>} ->

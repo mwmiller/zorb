@@ -75,16 +75,20 @@ defmodule Zorb.TestSupport.Expect do
 
   defp check_disputes!(buffer) do
     for d <- Process.get(:zorb_disputes, []) do
-      if matches?(buffer, d) do
-        # Find the line that matched.
-        lines = String.split(buffer, ["\r", "\n"])
+      maybe_flunk_dispute(buffer, d)
+    end
+  end
 
-        matching_line =
-          Enum.find(Enum.reverse(lines), fn line -> line != "" && matches?(line, d) end) ||
-            "Unknown line"
+  defp maybe_flunk_dispute(buffer, d) do
+    if matches?(buffer, d) do
+      # Find the line that matched.
+      lines = String.split(buffer, ["\r", "\n"])
 
-        flunk("Disputed pattern #{inspect(d)} found in line: #{String.trim(matching_line)}")
-      end
+      matching_line =
+        Enum.find(Enum.reverse(lines), fn line -> line != "" && matches?(line, d) end) ||
+          "Unknown line"
+
+      flunk("Disputed pattern #{inspect(d)} found in line: #{String.trim(matching_line)}")
     end
   end
 
