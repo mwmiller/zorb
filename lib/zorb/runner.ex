@@ -1,6 +1,5 @@
 defmodule Zorb.Runner do
   @moduledoc false
-  alias Zorb.Interpreter
 
   def run(path, owner \\ nil, opts \\ []) do
     owner = owner || self()
@@ -20,8 +19,8 @@ defmodule Zorb.Runner do
     merged_zio = Map.merge(base_imports["zio"], Map.get(overrides, "zio", %{}))
     imports = Map.put(base_imports, "zio", merged_zio)
 
-    wat = Orb.to_wat(Interpreter)
-    {:ok, instance} = Wasmex.start_link(%{bytes: wat, imports: imports})
+    wasm_bytes = Zorb.Capsule.compile(path)
+    {:ok, instance} = Wasmex.start_link(%{bytes: wasm_bytes, imports: imports})
     Agent.update(agent, fn s -> %{s | instance: instance} end)
 
     {:ok, memory} = Wasmex.memory(instance)
@@ -82,16 +81,20 @@ defmodule Zorb.Runner do
   end
 
   defp build_imports(agent) do
+    zio = %{
+      "print_char" => {:fn, [:i32], [], print_char_impl(agent)},
+      "read_char" => {:fn, [], [:i32], read_char_impl(agent)},
+      "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
+      "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
+      "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
+      "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], &Zorb.Tokeniser.tokenize/5},
+      "log_step" => {:fn, [:i32, :i32], [], fn _ctx, _pc, _b -> nil end}
+    }
+
     %{
-      "zio" => %{
-        "print_char" => {:fn, [:i32], [], print_char_impl(agent)},
-        "read_char" => {:fn, [], [:i32], read_char_impl(agent)},
-        "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
-        "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
-        "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
-        "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], &Zorb.Tokeniser.tokenize/5},
-        "log_step" => {:fn, [:i32, :i32], [], fn _ctx, _pc, _b -> nil end}
-      }
+      "zio" => zio,
+      "Zorb.Capsule.Host" => zio,
+      "Elixir.Zorb.Capsule.Host" => zio
     }
   end
 

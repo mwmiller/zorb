@@ -1,7 +1,7 @@
 defmodule Zorb.Interpreter do
   @moduledoc false
   use Orb
-  alias Zorb.Capsule.Host, as: ZIO
+
   require Zorb.Interpreter.Types
   alias Zorb.Interpreter.Types, as: T
 
@@ -193,7 +193,7 @@ defmodule Zorb.Interpreter do
     @halted 0
   end
 
-  Orb.Import.register(ZIO)
+  Orb.Import.register(Zorb.Capsule.Host)
 
   defw read_byte(addr: T.Address), I32 do
     Memory.load!(I32.U8, addr)
@@ -218,7 +218,7 @@ defmodule Zorb.Interpreter do
 
   defw halt(reason: I32, pc: I32, opcode: I32) do
     @halted = I32.const(1)
-    ZIO.halt(reason, pc, opcode)
+    Zorb.Capsule.Host.halt(reason, pc, opcode)
   end
 
   defwp fetch_var_ref_operand(type: I32), I32 do
@@ -872,7 +872,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x16) do
-      fetch_result_and_store(unicode_to_zscii(ZIO.read_char()))
+      fetch_result_and_store(unicode_to_zscii(Zorb.Capsule.Host.read_char()))
       return()
     end
 
@@ -1236,7 +1236,7 @@ defmodule Zorb.Interpreter do
       return()
     end
 
-    ZIO.print_char(char)
+    Zorb.Capsule.Host.print_char(char)
   end
 
   defw do_output_stream(s: I32, addr: T.Address) do
@@ -1889,7 +1889,7 @@ defmodule Zorb.Interpreter do
     Control.block ILoopBlock do
       loop ILoop do
         if I32.lt_u(i, max) do
-          char = unicode_to_zscii(ZIO.read_char())
+          char = unicode_to_zscii(Zorb.Capsule.Host.read_char())
 
           if I32.ne(char, 13) do
             # V1-4 lowercase conversion
@@ -1921,7 +1921,7 @@ defmodule Zorb.Interpreter do
 
   defw do_tokenise(t: T.Address, p: T.Address, d: T.Address) do
     if I32.eq(d, 0), do: d = @dictionary_base
-    ZIO.tokenize(t, p, d, 0)
+    Zorb.Capsule.Host.tokenize(t, p, d, 0)
   end
 
   defw do_get_sibling(obj: T.Object), sib: T.Object do
@@ -2229,7 +2229,7 @@ defmodule Zorb.Interpreter do
     @current_font = 1
     @current_alphabet = 0
     @next_alphabet = -1
-    @capabilities = ZIO.get_capabilities()
+    @capabilities = Zorb.Capsule.Host.get_capabilities()
 
     if I32.ge_u(@version, 4) do
       # Spec 11.1.2: Flags 2 at offset 0x10

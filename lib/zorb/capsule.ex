@@ -1,26 +1,14 @@
 defmodule Zorb.Capsule do
   @moduledoc """
   The "Baking Factory" for Z-machine Game Capsules.
-
-  This module provides the ergonomics for transforming raw Z-machine story files
-  into optimized, standalone WASM binaries with a persistent caching layer.
   """
   alias Zorb.Capsule.Assembler
 
-  # Increment this version whenever the interpreter logic or memory layout changes.
-  # This ensures that cached artifacts are invalidated when the compiler is updated.
   @compiler_version "0.1.0-alpha.1"
 
-  @doc """
-  Returns the current version of the Zorb capsule compiler.
-  """
   def compiler_version, do: @compiler_version
 
-  @doc """
-  Compiles a story file into WASM bytes, using the persistent cache if possible.
-  """
   def compile(story_path) when is_binary(story_path) do
-    IO.puts(:stderr, "Zorb: Capsule.compile(#{story_path})")
     story_data = File.read!(story_path)
 
     name_hint =
@@ -32,123 +20,63 @@ defmodule Zorb.Capsule do
     compile_data(story_data, name_hint: name_hint)
   end
 
-  @doc """
-  Compiles raw story data into WASM bytes with caching.
-  """
   def compile_data(story_data, opts \\ []) when is_binary(story_data) and is_list(opts) do
-    IO.puts(:stderr, "Zorb: Capsule.compile_data")
     key = generate_cache_key(story_data)
     dir = cache_dir()
-    cache_path = Path.join(dir, "#{key}.wasm")
+    cache_path = Path.join(dir, "#{key}.wat")
 
     case File.read(cache_path) do
-      {:ok, wasm_bytes} ->
-        IO.puts(:stderr, "Zorb: Cache HIT for #{key}")
-        wasm_bytes
+      {:ok, wat} ->
+        wat
 
       {:error, :enoent} ->
-        IO.puts(
-          :stderr,
-          "Zorb: Cache MISS for #{key}. Starting compilation of #{byte_size(story_data)} bytes..."
-        )
-
-        start_time = System.monotonic_time()
-
-        wasm_bytes = perform_compile(story_data, opts)
-
-        duration =
-          System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)
-
-        IO.puts(:stderr, "Zorb: Compilation finished in #{duration}ms")
-
+        wat = perform_compile(story_data, opts)
         File.mkdir_p!(dir)
-        File.write!(cache_path, wasm_bytes)
-        IO.puts(:stderr, "Zorb: Successfully cached artifact to #{cache_path}")
-        wasm_bytes
+        File.write!(cache_path, wat)
+        wat
     end
   end
 
   defp perform_compile(story_data, opts) do
     base_name = Keyword.get(opts, :name_hint, "Bespoke")
-    key = generate_cache_key(story_data)
-    dir = cache_dir()
-    cache_path = Path.join(dir, "#{key}.wasm")
-
-    # Create a unique module name hint
     hash = :erlang.phash2(story_data) |> Integer.to_string(16) |> String.downcase()
-    module_name_hint = "#{base_name}_#{hash}"
-
-    module_name = Module.concat([Zorb, Capsule, module_name_hint])
-
-    IO.puts(:stderr, "Zorb: Defining bespoke module #{module_name}...")
+    module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{hash}"])
 
     case Code.ensure_loaded?(module_name) do
       true ->
         :ok
 
       false ->
-        # 1. Generate the AST for the module
-        IO.puts(:stderr, "Zorb: Calling Assembler.assemble...")
-        module_ast = Assembler.assemble(story_data, module_name)
+        IO.puts(:stderr, "Zorb: Baking bespoke module #{module_name}...")
+        {source, data} = Assembler.assemble(story_data, module_name)
 
-        # 2. Evaluate the AST into the current VM
-        IO.puts(:stderr, "Zorb: Evaluating bespoke module AST into VM...")
+        binding = [
+          bespoke_story_data: data.bespoke_story_data,
+          bespoke_unicode_bin: data.bespoke_unicode_bin,
+          bespoke_alphabets_bin: data.bespoke_alphabets_bin,
+          bespoke_hash_table_bin: data.bespoke_hash_table_bin
+        ]
 
-        try do
-          # File.write!("tmp/last_bespoke_module.ex", Sourceror.to_string(module_ast))
-          Code.eval_quoted(module_ast)
-        rescue
-          e ->
-            File.write!("tmp/failed_bespoke_module.ex", Sourceror.to_string(module_ast))
-            IO.puts(:stderr, "Zorb: Evaluation CRASHED: #{inspect(e)}")
-            reraise e, __STACKTRACE__
-        end
-
-        IO.puts(:stderr, "Zorb: Module defined successfully.")
+        Code.eval_string(source, binding)
     end
 
-    IO.puts(:stderr, "Zorb: Module #{module_name} loaded? #{Code.ensure_loaded?(module_name)}")
-
-    IO.puts(:stderr, "Zorb: Generating WASM bytes from module...")
-    {duration, wasm_bytes} = :timer.tc(fn -> Orb.to_wasm(module_name) end)
-    IO.puts(:stderr, "Zorb: WASM generation took #{div(duration, 1000)}ms")
-    IO.puts(:stderr, "Zorb: WASM generation took #{div(duration, 1000)}ms")
-
-    File.mkdir_p!(dir)
-    File.write!(cache_path, wasm_bytes)
-    IO.puts(:stderr, "Zorb: Successfully cached artifact to #{cache_path}")
-    wasm_bytes
+    Orb.to_wat(module_name)
   end
 
-  @doc """
-  Generates a unique cache key based on compiler version and story header.
-  """
   def generate_cache_key(story_data) do
     header =
       case story_data do
-        <<header::binary-size(64), _::binary>> -> header
-        header -> header
+        <<h::binary-size(64), _::binary>> -> h
+        h -> h
       end
 
     header_hash = :crypto.hash(:sha256, header) |> Base.encode16(case: :lower)
-    size = byte_size(story_data)
-
-    # Key format: <v>-<size>-<header_hash_prefix>
-    "#{@compiler_version}-#{size}-#{String.slice(header_hash, 0, 16)}"
+    "#{@compiler_version}-#{byte_size(story_data)}-#{String.slice(header_hash, 0, 16)}"
   end
 
   defp cache_dir do
-    # Default to a tmp directory in the current working directory,
-    # but allow override via config.
-    base = Application.get_env(:zorb, :cache_dir) || Path.expand("tmp/zorb_cache")
-    Path.join(base, @compiler_version)
-  end
-
-  @doc """
-  Compiles a story file and writes the resulting WASM to a file.
-  """
-  def compile_to_file(story_path, output_wasm_path) do
-    wasm_bytes = compile(story_path)
-    File.write!(output_wasm_path, wasm_bytes)
+    Application.get_env(:zorb, :cache_dir) ||
+      Path.expand("tmp/zorb_cache")
+      |> Path.join(@compiler_version)
   end
 end
