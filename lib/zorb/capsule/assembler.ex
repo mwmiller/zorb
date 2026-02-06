@@ -16,12 +16,22 @@ defmodule Zorb.Capsule.Assembler do
     {gb, smb, db, ab, otb} = extract_header_fields(story_data)
     {hash_table, mask} = generate_dictionary_hash_table(story_data, db, version)
     pruned_story = prune_story_data(story_data, dictionary_base: db)
-    {pas, oes, po, _soj, co, pto} = calculate_version_constants(version)
+    {pas, oes, po, soj, co, pto} = calculate_version_constants(version)
     {ro, so} = calculate_offsets(version, story_data)
     unicode = generate_unicode_binary()
 
-    alphabets =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?_#'\"/\\\\\\\\<-:() \r0123456789.,!?_#'\"/\\\\\\\\-:()"
+    # Use standard 104-char alphabet
+    a0 = ~c"abcdefghijklmnopqrstuvwxyz"
+    a1 = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # V1 A2: Spec 3.5.4 - Position 0=' ', then 0-9, .,!?_#'"/\<-:()
+    # Zchars 06-1f map to positions 0-25
+    a2_v1 = ~c" 0123456789.,!?_#'\"/\\<-:()"
+
+    # V2+ A2: Spec 3.5.3 - Position 0=dummy(ZSCII escape), Position 1=newline, then 0-9, .,!?_#'"/\-:()
+    # Zchar 06 is ZSCII escape (handled specially), zchars 07-1f map to positions 1-25
+    a2_v2 = [0, 13] ++ ~c"0123456789.,!?_#'\"/\\-:()"
+    alphabets = a0 ++ a1 ++ a2_v1 ++ a2_v2
+    if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
 
     # 3. Create Replacement ASTs
     new_global_block =
@@ -38,7 +48,7 @@ defmodule Zorb.Capsule.Assembler do
           @static_memory_base unquote(smb)
           @dictionary_base unquote(db)
           @object_table_base unquote(otb)
-          @object_table_start 0
+          @object_table_start unquote(if version <= 3, do: otb + 62, else: otb + 126)
           @abbreviations_base unquote(ab)
           @next_alphabet -1
           @abbrev_mode 0
@@ -50,7 +60,7 @@ defmodule Zorb.Capsule.Assembler do
           @stream3_active 0
           @object_entry_size unquote(oes)
           @object_parent_offset unquote(po)
-          @object_sibling_offset unquote(so)
+          @object_sibling_offset unquote(soj)
           @object_child_offset unquote(co)
           @object_property_table_offset unquote(pto)
           @random_state 1
@@ -62,24 +72,30 @@ defmodule Zorb.Capsule.Assembler do
           @current_font 1
           @current_alphabet 0
           @halted 0
-          @encoded_w1 0
-          @encoded_w2 0
-          @encoded_w3 0
+          @tick 0
         end
       end
 
     new_memory_setup =
-      quote do
-        Orb.Memory.pages(16)
-        Orb.Memory.initial_data!(0, var!(bespoke_story_data))
-        Orb.Memory.initial_data!(0x80000, var!(bespoke_unicode_bin))
-        Orb.Memory.initial_data!(0x81000, var!(bespoke_alphabets_bin))
-        Orb.Memory.initial_data!(0x82000, var!(bespoke_hash_table_bin))
-      end
+      [
+        quote(do: Orb.Memory.pages(16))
+        | chunk_initial_data(0, pruned_story) ++
+            [
+              quote(
+                do: Orb.Memory.initial_data!(0x80000, u8: unquote(:binary.bin_to_list(unicode)))
+              ),
+              quote(do: Orb.Memory.initial_data!(0x81000, u8: unquote(alphabets))),
+              quote(
+                do:
+                  Orb.Memory.initial_data!(0x82000, u8: unquote(:binary.bin_to_list(hash_table)))
+              )
+            ]
+      ]
+      |> List.flatten()
 
     new_lookup_dictionary =
       quote do
-        defw lookup_dictionary(w1: I32, w2: I32, w3: I32), T.Address, slot: I32, addr: I32 do
+        defw ldict(w1: I32, w2: I32, w3: I32), T.Address, slot: I32, addr: I32 do
           slot = I32.band(I32.xor(w1, I32.xor(w2, w3)), unquote(mask))
 
           loop Search do
@@ -89,25 +105,428 @@ defmodule Zorb.Capsule.Assembler do
               return(0)
             end
 
-            maybe_return_dict_addr(addr, w1, w2, w3)
+            if mdict(addr, w1, w2, w3) do
+              return(Memory.load!(I32, I32.add(addr, 12)))
+            end
 
             slot = I32.band(I32.add(slot, 1), unquote(mask))
             Search.continue()
           end
+
+          return(0)
         end
       end
 
-    # 4. Transform AST
+    new_maybe_return_dict_addr =
+      quote do
+        defw mdict(addr: T.Address, w1: I32, w2: I32, w3: I32), I32, combined1: I32 do
+          # Hash table stores (w1 << 16) | w2 as combined value at offset 0
+          combined1 = I32.or(I32.shl(w1, 16), w2)
+          
+          if I32.ne(Memory.load!(I32, addr), combined1) do
+            return(0)
+          end
+
+          if I32.ne(Memory.load!(I32, I32.add(addr, 4)), w3) do
+            return(0)
+          end
+
+          return(1)
+        end
+      end
+
+    new_do_tokenise =
+      quote do
+        defw do_tokenise(t: T.Address, p: T.Address, d: T.Address),
+          text_start: I32,
+          text_len: I32,
+          max_words: I32,
+          word_count: I32,
+          i: I32,
+          char: I32,
+          in_word: I32,
+          word_start: I32,
+          word_len: I32,
+          parse_idx: I32,
+          dict_addr: T.Address,
+          num_sep: I32,
+          sep_addr: I32,
+          j: I32,
+          sep_char: I32,
+          is_sep: I32,
+          z0: I32,
+          z1: I32,
+          z2: I32,
+          z3: I32,
+          z4: I32,
+          z5: I32,
+          w1: I32,
+          w2: I32,
+          w3: I32,
+          zchars_len: I32,
+          zchar: I32 do
+          if I32.eq(d, 0), do: d = @dictionary_base
+
+          # Get text buffer parameters based on version
+          if I32.ge_u(@version, 5) do
+            text_start = I32.add(t, 2)
+            text_len = read_byte(I32.add(t, 1))
+          else
+            text_start = I32.add(t, 1)
+            # Find null terminator for V1-4
+            text_len = 0
+
+            Control.block FindNullBlock do
+              loop FindNull do
+                if I32.lt_u(text_len, 255) do
+                  if I32.eq(read_byte(I32.add(text_start, text_len)), 0) do
+                    FindNullBlock.break()
+                  end
+
+                  text_len = I32.add(text_len, 1)
+                  FindNull.continue()
+                end
+              end
+            end
+          end
+
+          # Get parse buffer parameters
+          max_words = read_byte(p)
+          word_count = 0
+
+          # Read separator info from dictionary
+          num_sep = read_byte(d)
+          sep_addr = I32.add(d, 1)
+
+          # Tokenize text
+          i = 0
+          in_word = 0
+          word_start = 0
+          word_len = 0
+
+          loop TokenLoop do
+            if I32.lt_u(i, text_len) do
+              char = read_byte(I32.add(text_start, i))
+
+              # Check if character is a separator
+              is_sep = 0
+
+              if I32.gt_u(num_sep, 0) do
+                j = 0
+
+                Control.block SepLoopBlock do
+                  loop SepLoop do
+                    if I32.lt_u(j, num_sep) do
+                      sep_char = read_byte(I32.add(sep_addr, j))
+
+                      if I32.eq(char, sep_char) do
+                        is_sep = 1
+                        SepLoopBlock.break()
+                      end
+
+                      j = I32.add(j, 1)
+                      SepLoop.continue()
+                    end
+                  end
+                end
+              end
+
+              # Handle space or separator
+              if I32.or(I32.eq(char, 32), is_sep) do
+                # End current word if any
+                if in_word do
+                  if I32.lt_u(word_count, max_words) do
+                    # Encode word and lookup in dictionary
+                    z0 = 5
+                    z1 = 5
+                    z2 = 5
+                    z3 = 5
+                    z4 = 5
+                    z5 = 5
+                    zchars_len = 0
+                    j = 0
+
+                    loop EncodeLoop do
+                      if I32.band(I32.lt_u(j, word_len), I32.lt_u(zchars_len, 6)) do
+                        char = read_byte(I32.add(text_start, I32.add(word_start, j)))
+
+                        # Convert to lowercase for V1-4
+                        if I32.lt_u(@version, 5) do
+                          if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
+                            char = I32.add(char, 32)
+                          end
+                        end
+
+                        # Encode a-z
+                        if I32.band(I32.ge_u(char, 97), I32.le_u(char, 122)) do
+                          zchar = I32.add(I32.sub(char, 97), 6)
+
+                          if I32.eq(zchars_len, 0), do: z0 = zchar
+                          if I32.eq(zchars_len, 1), do: z1 = zchar
+                          if I32.eq(zchars_len, 2), do: z2 = zchar
+                          if I32.eq(zchars_len, 3), do: z3 = zchar
+                          if I32.eq(zchars_len, 4), do: z4 = zchar
+                          if I32.eq(zchars_len, 5), do: z5 = zchar
+
+                          zchars_len = I32.add(zchars_len, 1)
+                        end
+
+                        j = I32.add(j, 1)
+                        EncodeLoop.continue()
+                      end
+                    end
+
+                    # Pack into words and lookup
+                    # For V3, w2 needs the high bit set (end marker)
+                    w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
+                    w2 = I32.or(I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5)), 0x8000)
+                    w3 = 0
+
+                    dict_addr = ldict(w1, w2, w3)
+
+                    # Write to parse buffer
+                    parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
+                    write_word(parse_idx, dict_addr)
+                    write_byte(I32.add(parse_idx, 2), word_len)
+
+                    write_byte(
+                      I32.add(parse_idx, 3),
+                      I32.add(
+                        word_start,
+                        if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
+                      )
+                    )
+
+                    word_count = I32.add(word_count, 1)
+                  end
+
+                  in_word = 0
+                end
+
+                # If separator (not space), add as separate word
+                if is_sep do
+                  if I32.lt_u(word_count, max_words) do
+                    # Encode single separator character
+                    char = read_byte(I32.add(text_start, i))
+
+                    # Convert to lowercase
+                    if I32.lt_u(@version, 5) do
+                      if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
+                        char = I32.add(char, 32)
+                      end
+                    end
+
+                    # Simple encoding for separators (they're usually in A2)
+                    z0 = 5
+                    z1 = 5
+                    z2 = 5
+
+                    w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
+                    w2 = I32.or(I32.or(I32.shl(5, 10), I32.or(I32.shl(5, 5), 5)), 0x8000)
+                    w3 = 0
+
+                    dict_addr = ldict(w1, w2, w3)
+
+                    parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
+                    write_word(parse_idx, dict_addr)
+                    write_byte(I32.add(parse_idx, 2), 1)
+
+                    write_byte(
+                      I32.add(parse_idx, 3),
+                      I32.add(i, if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1)))
+                    )
+
+                    word_count = I32.add(word_count, 1)
+                  end
+                end
+              else
+                # Start or continue word
+                if I32.eq(in_word, 0) do
+                  word_start = i
+                  word_len = 0
+                  in_word = 1
+                end
+
+                word_len = I32.add(word_len, 1)
+              end
+
+              i = I32.add(i, 1)
+              TokenLoop.continue()
+            end
+          end
+
+          # Handle final word
+          if in_word do
+            if I32.lt_u(word_count, max_words) do
+              # Encode word
+              z0 = 5
+              z1 = 5
+              z2 = 5
+              z3 = 5
+              z4 = 5
+              z5 = 5
+              zchars_len = 0
+              j = 0
+
+              loop EncodeLoop2 do
+                if I32.band(I32.lt_u(j, word_len), I32.lt_u(zchars_len, 6)) do
+                  char = read_byte(I32.add(text_start, I32.add(word_start, j)))
+
+                  if I32.lt_u(@version, 5) do
+                    if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
+                      char = I32.add(char, 32)
+                    end
+                  end
+
+                  if I32.band(I32.ge_u(char, 97), I32.le_u(char, 122)) do
+                    zchar = I32.add(I32.sub(char, 97), 6)
+
+                    if I32.eq(zchars_len, 0), do: z0 = zchar
+                    if I32.eq(zchars_len, 1), do: z1 = zchar
+                    if I32.eq(zchars_len, 2), do: z2 = zchar
+                    if I32.eq(zchars_len, 3), do: z3 = zchar
+                    if I32.eq(zchars_len, 4), do: z4 = zchar
+                    if I32.eq(zchars_len, 5), do: z5 = zchar
+
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+
+                  j = I32.add(j, 1)
+                  EncodeLoop2.continue()
+                end
+              end
+
+              w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
+              w2 = I32.or(I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5)), 0x8000)
+              w3 = 0
+
+              dict_addr = ldict(w1, w2, w3)
+
+              parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
+              write_word(parse_idx, dict_addr)
+              write_byte(I32.add(parse_idx, 2), word_len)
+
+              write_byte(
+                I32.add(parse_idx, 3),
+                I32.add(
+                  word_start,
+                  if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
+                )
+              )
+
+              word_count = I32.add(word_count, 1)
+            end
+          end
+
+          # Write word count to parse buffer
+          write_byte(I32.add(p, 1), word_count)
+
+          # Clear remaining parse buffer slots to avoid garbage
+          # Unconditionally write 32 zeros (8 slots * 4 bytes) after the valid entries
+          # Parse buffer slots start at: p + 2 + (word_count * 4)
+          # Inline all address calculations to avoid variable scoping issues
+          write_word(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 2), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 4), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 6), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 8), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 10), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 12), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 14), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 16), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 18), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 20), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 22), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 24), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 26), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 28), 0)
+          write_word(I32.add(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 30), 0)
+        end
+      end
+
+    # 4. Transform AST in a single pass for module-level stuff
     final_ast =
-      ast
-      |> rename_module(module_name)
-      |> replace_globals(new_global_block)
-      |> replace_lookup_dictionary(new_lookup_dictionary)
-      |> prune_and_inject_memory(new_memory_setup)
-      |> prune_version_branches(version)
+      Macro.prewalk(ast, fn
+        {:defmodule, meta, children} = node ->
+          if is_list(children) do
+            [_old_name, args_list | _] = children
+
+            # Sourceror uses a tuple for the do block keyword
+            # [{{:__block__, ..., [:do]}, body}]
+            body =
+              case args_list do
+                [{{:__block__, _, [:do]}, b}] -> b
+                _ -> Keyword.get(args_list, :do)
+              end
+
+            if is_nil(body) do
+              node
+            else
+              alias_node =
+                {:__aliases__, [alias: false],
+                 Module.split(module_name) |> Enum.map(&String.to_atom/1)}
+
+              list_children =
+                case body do
+                  {:__block__, _, list} -> list
+                  item -> [item]
+                end
+
+              # Prune and Replace
+              processed_children =
+                list_children
+                |> Enum.reject(fn
+                  {{:., _, [target, func]}, _, _} when func in [:pages, :initial_data!] ->
+                    target_str = Macro.to_string(target)
+                    target_str == "Memory" or target_str == "Orb.Memory"
+
+                  _ ->
+                    false
+                end)
+                |> Enum.map(fn
+                  {:global, _, _} ->
+                    new_global_block
+
+                  {:defw, _, [name_node | _]} = node ->
+                    name =
+                      case name_node do
+                        {name, _, _} when is_atom(name) -> name
+                        name when is_atom(name) -> name
+                        _ -> nil
+                      end
+
+                    case name do
+                      :ldict -> new_lookup_dictionary
+                      :mdict -> new_maybe_return_dict_addr
+                      :do_tokenise -> new_do_tokenise
+                      _ -> node
+                    end
+
+                  node ->
+                    node
+                end)
+
+              # Inject memory setup
+              final_children =
+                inject_after_use_orb(processed_children, {:__block__, [], new_memory_setup})
+                |> Enum.reject(&is_nil/1)
+
+              {:defmodule, meta, [alias_node, [do: {:__block__, [], final_children}]]}
+            end
+          else
+            node
+          end
+
+        node ->
+          node
+      end)
+
+    # |> prune_version_branches(version)
 
     # 5. Convert to String
     source_code = Sourceror.to_string(final_ast)
+
+    File.write!("tmp/last_bespoke_source.ex", source_code)
 
     # 6. Return Source and Data
     data = %{
@@ -120,78 +539,90 @@ defmodule Zorb.Capsule.Assembler do
     {source_code, data}
   end
 
+  defp chunk_initial_data(base_offset, bin) do
+    chunk_size = 512
+
+    bin
+    |> byte_size()
+    |> then(fn size ->
+      if size == 0 do
+        []
+      else
+        for offset <- 0..(size - 1) |> Enum.take_every(chunk_size) do
+          len = min(chunk_size, size - offset)
+          chunk = binary_part(bin, offset, len)
+          bytes = :binary.bin_to_list(chunk)
+
+          quote do
+            Orb.Memory.initial_data!(unquote(base_offset + offset), u8: unquote(bytes))
+          end
+        end
+      end
+    end)
+  end
+
   def prune_version_branches(ast, version) do
     Macro.prewalk(ast, fn
-      {:if, _meta,
-       [{{:., _, [{:__aliases__, _, aliases}, op]}, _, [{:@, _, [{:version, _, _}]}, v]}, blocks]}
-      when op in [:ge_u, :le_u, :lt_u, :eq, :ne] and aliases in [[:I32], [:Orb, :I32]] ->
-        yes = blocks[:do]
-        no = blocks[:else] || quote(do: Orb.DSL.nop())
-
-        take_yes =
-          case op do
-            :ge_u -> version >= v
-            :le_u -> version <= v
-            :lt_u -> version < v
-            :eq -> version == v
-            :ne -> version != v
-          end
-
-        if take_yes, do: yes, else: no
-
-      nil ->
-        quote(do: Orb.DSL.nop())
-
-      node ->
-        node
-    end)
-  end
-
-  defp rename_module(ast, new_name) do
-    alias_node =
-      {:__aliases__, [alias: false], Module.split(new_name) |> Enum.map(&String.to_atom/1)}
-
-    Macro.prewalk(ast, fn
-      {:defmodule, meta, [_old_name, args]} ->
-        {:defmodule, meta, [alias_node, args]}
-
-      node ->
-        node
-    end)
-  end
-
-  defp replace_globals(ast, new_globals) do
-    Macro.prewalk(ast, fn
-      {:global, _, [[do: _]]} -> new_globals
-      node -> node
-    end)
-  end
-
-  defp replace_lookup_dictionary(ast, new_def) do
-    Macro.prewalk(ast, fn
-      {:defw, _, [{:lookup_dictionary, _, _} | _]} -> new_def
-      node -> node
-    end)
-  end
-
-  defp prune_and_inject_memory(ast, new_setup) do
-    Macro.prewalk(ast, fn
-      {:defmodule, meta, [name, [do: {:__block__, bmeta, children}]]} ->
-        filtered_children =
-          Enum.reject(children, fn
-            {{:., _, [{:__aliases__, _, [:Memory]}, :pages]}, _, _} -> true
-            {{:., _, [{:__aliases__, _, [:Memory]}, :initial_data!]}, _, _} -> true
-            {{:., _, [{:__aliases__, _, [:Orb, :Memory]}, :initial_data!]}, _, _} -> true
-            _ -> false
+      {:defw, meta, args} ->
+        new_args =
+          Enum.map(args, fn
+            [do: body] -> [do: prune_version_branches_in_block(body, version)]
+            other -> other
           end)
 
-        final_children = inject_after_use_orb(filtered_children, new_setup)
+        {:defw, meta, new_args}
 
-        {:defmodule, meta, [name, [do: {:__block__, bmeta, final_children}]]}
+      {:if, _, _} = node ->
+        prune_version_branches_in_block(node, version)
 
       node ->
         node
     end)
+  end
+
+  defp prune_version_branches_in_block(nil, _version), do: quote(do: Orb.DSL.nop())
+
+  defp prune_version_branches_in_block(body, version) do
+    # Pass 1: Prune known version branches.
+    pruned =
+      Macro.prewalk(body, fn
+        nil ->
+          quote(do: Orb.DSL.nop())
+
+        {:if, meta, [condition, blocks]} ->
+          case condition do
+            {{:., _, [target, op]}, _, [{:@, _, [{v_name, _, _}]}, v]}
+            when op in [:ge_u, :le_u, :lt_u, :gt_u, :eq, :ne] and v_name == :version ->
+              target_str = Macro.to_string(target)
+
+              if target_str in ["I32", "Orb.I32"] do
+                yes = blocks[:do] || quote(do: Orb.DSL.nop())
+                no = blocks[:else] || quote(do: Orb.DSL.nop())
+
+                take_yes =
+                  case op do
+                    :ge_u -> version >= v
+                    :le_u -> version <= v
+                    :lt_u -> version < v
+                    :gt_u -> version > v
+                    :eq -> version == v
+                    :ne -> version != v
+                  end
+
+                if take_yes, do: yes, else: no
+              else
+                {:if, meta, [condition, blocks]}
+              end
+
+            _ ->
+              {:if, meta, [condition, blocks]}
+          end
+
+        node ->
+          node
+      end)
+
+    pruned
   end
 
   defp inject_after_use_orb(children, new_setup) do
@@ -201,9 +632,19 @@ defmodule Zorb.Capsule.Assembler do
         _ -> false
       end)
 
+    setup_children =
+      case new_setup do
+        {:__block__, _, list} -> list
+        item -> [item]
+      end
+
     case index do
-      nil -> [new_setup | children]
-      i -> List.insert_at(children, i + 1, new_setup)
+      nil ->
+        setup_children ++ children
+
+      i ->
+        {head, tail} = Enum.split(children, i + 1)
+        head ++ setup_children ++ tail
     end
   end
 
@@ -252,21 +693,25 @@ defmodule Zorb.Capsule.Assembler do
     table = List.to_tuple(table)
 
     final_table =
-      Enum.reduce(0..max(0, num_entries - 1), table, fn i, acc ->
-        if num_entries == 0 do
-          acc
-        else
+      if num_entries > 0 do
+        Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
           addr = entries_start + i * entry_len
           {w1, w2, w3} = get_encoded_words(story_data, addr, version)
           hash = Bitwise.bxor(w1, Bitwise.bxor(w2, w3)) |> Bitwise.band(mask)
           insert_at_slot(acc, hash, w1, w2, w3, addr, mask)
-        end
-      end)
+        end)
+      else
+        table
+      end
 
     bin =
       for i <- 0..(table_size - 1), into: <<>> do
         {w1, w2, w3, addr} = elem(final_table, i)
-        <<w1::32-little, w2::32-little, w3::32-little, addr::32-little>>
+        # Each slot is 16 bytes: combined_word1(4) combined_word2(4) w3(4) addr(4)
+        # For V1-3: combine w1 and w2 into single 32-bit value: (w1 << 16) | w2
+        # For V4+: use all three words separately
+        combined1 = Bitwise.bor(Bitwise.bsl(w1, 16), w2)
+        <<combined1::32-little, w3::32-little, 0::32-little, addr::32-little>>
       end
 
     {bin, mask}
@@ -274,18 +719,23 @@ defmodule Zorb.Capsule.Assembler do
 
   defp get_encoded_words(story_data, addr, version) do
     if version <= 3 do
-      <<_::binary-size(addr), w::32, _::binary>> = story_data
-      {w, 0, 0}
-    else
-      <<_::binary-size(addr), w1::32, w2::16, _::binary>> = story_data
+      # V3 uses 2 words (4 bytes), stored as big-endian 16-bit values
+      <<_::binary-size(addr), w1::16-big, w2::16-big, _::binary>> = story_data
       {w1, w2, 0}
+    else
+      # V4+ uses 3 words (6 bytes)
+      <<_::binary-size(addr), w1::16-big, w2::16-big, w3::16-big, _::binary>> = story_data
+      {w1, w2, w3}
     end
   end
 
   defp insert_at_slot(table, slot, w1, w2, w3, addr, mask) do
     case elem(table, slot) do
-      {0, 0, 0, 0} -> put_elem(table, slot, {w1, w2, w3, addr})
-      _ -> insert_at_slot(table, Bitwise.band(slot + 1, mask), w1, w2, w3, addr, mask)
+      {0, 0, 0, 0} ->
+        put_elem(table, slot, {w1, w2, w3, addr})
+
+      _ ->
+        insert_at_slot(table, Bitwise.band(slot + 1, mask), w1, w2, w3, addr, mask)
     end
   end
 

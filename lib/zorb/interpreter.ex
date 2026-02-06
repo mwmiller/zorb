@@ -191,9 +191,20 @@ defmodule Zorb.Interpreter do
     @current_font 1
     @current_alphabet 0
     @halted 0
+    @tick 0
   end
 
   Orb.Import.register(Zorb.Capsule.Host)
+
+  # TODO: Implement hash table lookup at 0x82000 (requires baking phase support)
+  # For now, these are stubs that return 0
+  defw ldict(w1: I32, w2: I32, w3: I32), T.Address do
+    return(0)
+  end
+
+  defw mdict(addr: T.Address, w1: I32, w2: I32, w3: I32), I32 do
+    return(0)
+  end
 
   defw read_byte(addr: T.Address), I32 do
     Memory.load!(I32.U8, addr)
@@ -218,6 +229,7 @@ defmodule Zorb.Interpreter do
 
   defw halt(reason: I32, pc: I32, opcode: I32) do
     @halted = I32.const(1)
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
     Zorb.Capsule.Host.halt(reason, pc, opcode)
   end
 
@@ -872,6 +884,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x16) do
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
       fetch_result_and_store(unicode_to_zscii(Zorb.Capsule.Host.read_char()))
       return()
     end
@@ -1236,6 +1249,7 @@ defmodule Zorb.Interpreter do
       return()
     end
 
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
     Zorb.Capsule.Host.print_char(char)
   end
 
@@ -1542,7 +1556,7 @@ defmodule Zorb.Interpreter do
       end
 
       if I32.eq(zchar, 3) do
-        # next = (curr - 1) % 3 -> (curr + 2) % 3
+        # next = (curr + 2) % 3
         @next_alphabet = I32.rem_u(I32.add(@current_alphabet, 2), 3)
         return()
       end
@@ -1562,16 +1576,7 @@ defmodule Zorb.Interpreter do
       end
     else
       # V3+ shift rules (Spec 3.2.3)
-      if I32.eq(zchar, 2) do
-        @abbrev_mode = 2
-        return()
-      end
-
-      if I32.eq(zchar, 3) do
-        @abbrev_mode = 3
-        return()
-      end
-
+      # (Chars 1, 2, 3 are handled by abbreviation logic above)
       if I32.eq(zchar, 4) do
         @next_alphabet = 1
         return()
@@ -1586,13 +1591,12 @@ defmodule Zorb.Interpreter do
     # Determine alphabet
     alph = if(I32.ne(@next_alphabet, -1), do: @next_alphabet, else: @current_alphabet)
 
+    # ZSCII escape: zchar 6 in A2 (all versions)
     if I32.eq(alph, 2) do
-      if I32.ge_u(@version, 2) do
-        if I32.eq(zchar, 6) do
-          @zscii_state = 1
-          @next_alphabet = -1
-          return()
-        end
+      if I32.eq(zchar, 6) do
+        @zscii_state = 1
+        @next_alphabet = -1
+        return()
       end
     end
 
@@ -1608,9 +1612,14 @@ defmodule Zorb.Interpreter do
         end
       end
 
+      # All alphabets use zchars 6-31 (offset by 6)
       print_char_wasm(zscii_to_unicode(read_byte(I32.add(table_addr, I32.sub(zchar, 6)))))
 
       @next_alphabet = -1
+
+      if I32.ge_u(@version, 3) do
+        @current_alphabet = 0
+      end
     end
   end
 
@@ -1880,7 +1889,7 @@ defmodule Zorb.Interpreter do
     if(I32.ne(var, 0xFF), do: write_variable(var, v))
   end
 
-  defw read_input(buf: T.Address), I32, max: I32, i: I32, char: I32, st: I32 do
+  defw read_input(buf: T.Address), I32, max: I32, i: I32, char: I32, st: I32, j: I32 do
     max = read_byte(buf)
 
     st = if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
@@ -1889,6 +1898,7 @@ defmodule Zorb.Interpreter do
     Control.block ILoopBlock do
       loop ILoop do
         if I32.lt_u(i, max) do
+          # credo:disable-for-next-line Credo.Check.Design.AliasUsage
           char = unicode_to_zscii(Zorb.Capsule.Host.read_char())
 
           if I32.ne(char, 13) do
@@ -1911,16 +1921,32 @@ defmodule Zorb.Interpreter do
       end
     end
 
-    if(I32.lt_u(@version, 5),
-      do: write_byte(I32.add(I32.add(buf, st), i), 0),
-      else: write_byte(I32.add(buf, 1), i)
-    )
+    if I32.lt_u(@version, 5) do
+      # V1-4: Write null terminator at end of input
+      write_byte(I32.add(I32.add(buf, st), i), 0)
+      # Clear rest of text buffer to avoid garbage
+      # Text buffer is max bytes, clear from i+1 to max
+      j = I32.add(i, 1)
+      Control.block ClearTextBlock do
+        loop ClearTextLoop do
+          if I32.ge_u(j, max), do: ClearTextBlock.break()
+          
+          write_byte(I32.add(I32.add(buf, st), j), 0)
+          j = I32.add(j, 1)
+          ClearTextLoop.continue()
+        end
+      end
+    else
+      # V5+: Write actual length at buf+1
+      write_byte(I32.add(buf, 1), i)
+    end
 
     13
   end
 
   defw do_tokenise(t: T.Address, p: T.Address, d: T.Address) do
     if I32.eq(d, 0), do: d = @dictionary_base
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
     Zorb.Capsule.Host.tokenize(t, p, d, 0)
   end
 
@@ -2054,6 +2080,7 @@ defmodule Zorb.Interpreter do
     o7: I32,
     o8: I32,
     m: I32 do
+    @tick = I32.add(@tick, 1)
     b = fetch_byte()
 
     if I32.eq(I32.band(b, 0xC0), 0xC0) do
@@ -2216,7 +2243,7 @@ defmodule Zorb.Interpreter do
     I32.add(I32.shl(addr, @packed_address_shift), @string_offset)
   end
 
-  defw init(st_off: T.Address), addr: T.Address do
+  defw init(), addr: T.Address do
     @version = read_byte(0)
     @globals_base = read_word(0x0C)
     @dictionary_base = read_word(0x08)
@@ -2229,6 +2256,7 @@ defmodule Zorb.Interpreter do
     @current_font = 1
     @current_alphabet = 0
     @next_alphabet = -1
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
     @capabilities = Zorb.Capsule.Host.get_capabilities()
 
     if I32.ge_u(@version, 4) do
@@ -2324,11 +2352,11 @@ defmodule Zorb.Interpreter do
     0x81000,
     # A0
     # A1
-    # A2 (V1)
-    # A2 (V2+ Standard)
+    # A2 (V1) - Digits start at index 0 (Z-char 6)
+    # A2 (V2+ Standard) - Space, Newline, Digits...
     "abcdefghijklmnopqrstuvwxyz" <>
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ" <>
-      " 0123456789.,!?_#'\"/\\<-:()" <>
+      "0123456789.,!?_#'\"/\\<-:(\0\0" <>
       " \r0123456789.,!?_#'\"/\\-:()"
   )
 

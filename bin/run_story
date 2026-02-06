@@ -1,0 +1,69 @@
+#!/usr/bin/env elixir
+
+# Usage: bin/run_story path/to/story.z1
+
+if length(System.argv()) == 0 do
+  IO.puts("Usage: bin/run_story path/to/story.z[1-8]")
+  System.halt(1)
+end
+
+path = hd(System.argv())
+
+if !File.exists?(path) do
+  IO.puts("Error: File not found: #{path}")
+  System.halt(1)
+end
+
+# Ensure the app is loaded so dependencies (Wasmex, Orb) are available
+Mix.install([
+  {:zorb, path: ".", env: :dev}
+])
+
+# Start the runner in a separate process so we can bridge stdin
+parent = self()
+runner_pid = spawn_link(fn -> Zorb.Runner.run(path, parent) end)
+
+# Bridge stdin to the runner
+spawn_link(fn ->
+  # Read from stdin character by character
+  Stream.resource(
+    fn -> :ok end,
+    fn _ ->
+      case IO.getn("", 1) do
+        :eof -> {:halt, :ok}
+        {:error, _} -> {:halt, :ok}
+        char -> {[char], :ok}
+      end
+    end,
+    fn _ -> :ok end
+  )
+  |> Enum.each(fn char ->
+    Zorb.Runner.inject_input(runner_pid, [char])
+  end)
+end)
+
+# Listen for output and halt messages from the runner
+defmodule OutputHandler do
+  def loop(runner_pid) do
+    receive do
+      {:zorb_output, char} ->
+        # ZSCII 13 is newline, Elixir's IO handles UTF-8
+        case char do
+          13 -> IO.write("\n")
+          c -> IO.write([c])
+        end
+        loop(runner_pid)
+
+      {:zorb_halt, reason, pc, _opcode} ->
+        if reason != 0 do
+          IO.puts("\n\nHalted with reason #{reason} at PC #{pc}")
+        end
+        :ok
+
+      _ ->
+        loop(runner_pid)
+    end
+  end
+end
+
+OutputHandler.loop(runner_pid)

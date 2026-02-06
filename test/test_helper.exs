@@ -11,7 +11,8 @@ defmodule Zorb.TestRuntime do
       {:zio, :get_capabilities, fn -> 0 end},
       {:zio, :halt, fn _, _, _ -> 0 end},
       {:zio, :log_step, fn _, _ -> nil end},
-      {:zio, :tokenize, &Zorb.Tokeniser.tokenize/5}
+      # Tokenize is now in WASM only (bespoke assembler)
+      # {:zio, :tokenize, &Zorb.Tokeniser.tokenize/5}
     ]
   end
 

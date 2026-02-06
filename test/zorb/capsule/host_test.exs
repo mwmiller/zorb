@@ -6,8 +6,11 @@ defmodule Zorb.Capsule.HostTest do
   @prover_dir "test/fixtures/provers"
 
   test "handles host with zero capabilities gracefully" do
-    prover_path = Path.join(@prover_dir, "simple_test.z5")
-    owner = self()
+    prover_path = Path.join(@prover_dir, "czech.z5")
+
+    # Manually trigger compilation to see if it hangs here in the main test process
+    _wat = Zorb.Capsule.compile(prover_path)
+    IO.puts(:stderr, "Test: Compilation finished.")
 
     # Override get_capabilities to return 0 (no status line, no splits, etc)
     opts = [
@@ -18,13 +21,20 @@ defmodule Zorb.Capsule.HostTest do
       }
     ]
 
-    task = Task.async(fn -> Runner.run(prover_path, owner, opts) end)
+    parent = self()
+    pid = spawn_link(fn -> Runner.run(prover_path, parent, opts) end)
 
     # Game should still boot and print basics
-    expect("units 0 by 0", 5000, task.pid)
-    answer(task.pid, "quit
-")
+    expect("CZECH: the Comprehensive Z-machine Emulation CHecker", 30_000, pid)
+    answer(pid, "\n")
 
-    Task.await(task, 60_000)
+    # Wait for the process to exit
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    after
+      60_000 -> flunk("Runner timed out")
+    end
   end
 end

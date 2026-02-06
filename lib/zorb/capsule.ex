@@ -5,6 +5,12 @@ defmodule Zorb.Capsule do
   alias Zorb.Capsule.Assembler
 
   @compiler_version "0.1.0-alpha.1"
+  @compiler_files [
+    "lib/zorb/interpreter.ex",
+    "lib/zorb/capsule/assembler.ex",
+    "lib/zorb/interpreter/types.ex",
+    "lib/zorb/capsule/host.ex"
+  ]
 
   def compiler_version, do: @compiler_version
 
@@ -21,20 +27,7 @@ defmodule Zorb.Capsule do
   end
 
   def compile_data(story_data, opts \\ []) when is_binary(story_data) and is_list(opts) do
-    key = generate_cache_key(story_data)
-    dir = cache_dir()
-    cache_path = Path.join(dir, "#{key}.wat")
-
-    case File.read(cache_path) do
-      {:ok, wat} ->
-        wat
-
-      {:error, :enoent} ->
-        wat = perform_compile(story_data, opts)
-        File.mkdir_p!(dir)
-        File.write!(cache_path, wat)
-        wat
-    end
+    perform_compile(story_data, opts)
   end
 
   defp perform_compile(story_data, opts) do
@@ -42,25 +35,30 @@ defmodule Zorb.Capsule do
     hash = :erlang.phash2(story_data) |> Integer.to_string(16) |> String.downcase()
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{hash}"])
 
+    key = generate_cache_key(story_data)
+    ex_path = Path.join(cache_dir(), "#{key}.ex")
+
     case Code.ensure_loaded?(module_name) do
       true ->
         :ok
 
       false ->
-        IO.puts(:stderr, "Zorb: Baking bespoke module #{module_name}...")
-        {source, data} = Assembler.assemble(story_data, module_name)
+        {source, _data} = Assembler.assemble(story_data, module_name)
+        File.mkdir_p!(cache_dir())
+        File.write!(ex_path, source)
 
-        binding = [
-          bespoke_story_data: data.bespoke_story_data,
-          bespoke_unicode_bin: data.bespoke_unicode_bin,
-          bespoke_alphabets_bin: data.bespoke_alphabets_bin,
-          bespoke_hash_table_bin: data.bespoke_hash_table_bin
-        ]
-
-        Code.eval_string(source, binding)
+        try do
+          Code.compile_string(source)
+        catch
+          kind, e ->
+            IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
+            reraise e, __STACKTRACE__
+        end
     end
 
-    Orb.to_wat(module_name)
+    wat = Orb.to_wat(module_name)
+    File.write!("tmp/last_generated.wat", wat)
+    wat
   end
 
   def generate_cache_key(story_data) do
@@ -70,8 +68,17 @@ defmodule Zorb.Capsule do
         h -> h
       end
 
+    compiler_hash =
+      @compiler_files
+      |> Enum.map(&File.read!/1)
+      |> Enum.join()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> String.slice(0, 8)
+
     header_hash = :crypto.hash(:sha256, header) |> Base.encode16(case: :lower)
-    "#{@compiler_version}-#{byte_size(story_data)}-#{String.slice(header_hash, 0, 16)}"
+
+    "#{@compiler_version}-#{compiler_hash}-#{byte_size(story_data)}-#{String.slice(header_hash, 0, 8)}"
   end
 
   defp cache_dir do

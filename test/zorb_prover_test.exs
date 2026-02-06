@@ -16,7 +16,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "zil_test.z3")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     expect("A TEST FILE", 5000, task.pid)
     expect("TESTING LAB", 5000, task.pid)
@@ -31,7 +31,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     dispute("ERROR")
     dispute("bad")
@@ -51,7 +51,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     dispute("incorrect")
 
@@ -59,7 +59,7 @@ defmodule Zorb.ProverTest do
     # StrictZ asks about transcript. It uses read_char.
     # We wait for the prompt then send 'N'
     expect("(Y/N)", 5000, task.pid)
-    answer(task.pid, "N")
+    answer(task.pid, "N\n")
 
     expect("Test completed!", 60_000, task.pid)
 
@@ -73,7 +73,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "simple_test.z5")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     expect("units 0 by 0", 5000, task.pid)
     answer(task.pid, "quit\n")
@@ -85,7 +85,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     # When the prover asks for input, send '€'
     answer_on("Try inputing a character.", "€", task_pid: task.pid)
@@ -119,7 +119,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "zork1.z1")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     expect("ZORK: The Great Underground Empire - Part I", 5000, task.pid)
     expect("West of House", 5000, task.pid)
@@ -134,7 +134,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "zork1.z2")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     expect("ZORK: The Great Underground Empire - Part I", 5000, task.pid)
     expect("West of House", 5000, task.pid)
@@ -149,7 +149,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "simple_test.z7")
     owner = self()
 
-    task = Task.async(fn -> Runner.run(prover_path, owner) end)
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: 60_000) end)
 
     expect("units 0 by 0", 5000, task.pid)
     answer(task.pid, "quit\n")

@@ -4,13 +4,16 @@ defmodule Zorb.Runner do
   def run(path, owner \\ nil, opts \\ []) do
     owner = owner || self()
     story = File.read!(path)
+    timeout = Keyword.get(opts, :timeout, :infinity)
 
     # Get Extension Table address from Header word 0x34
     if story == nil, do: raise("No story provided")
 
-    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner}
+    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner, last_char: nil, timeout: timeout}
     {:ok, agent} =
-      Agent.start_link(fn -> %{instance: nil, buffer: [], halt: nil, owner: owner} end)
+      Agent.start_link(fn ->
+        %{instance: nil, buffer: [], halt: nil, owner: owner, last_char: nil, timeout: timeout}
+      end)
 
     base_imports = build_imports(agent)
     overrides = Keyword.get(opts, :imports, %{})
@@ -23,20 +26,8 @@ defmodule Zorb.Runner do
     {:ok, instance} = Wasmex.start_link(%{bytes: wasm_bytes, imports: imports})
     Agent.update(agent, fn s -> %{s | instance: instance} end)
 
-    {:ok, memory} = Wasmex.memory(instance)
-    {:ok, store} = Wasmex.store(instance)
-    Wasmex.Memory.write_binary(store, memory, 0, story)
-
-    # Call load_story to set @story_len and fill memory
-    {:ok, _} = Wasmex.call_function(instance, "load_story", [0, byte_size(story)])
-
-    # Init with stack at 0xA0000 (safely above 512KB story limit)
-    {:ok, _} = Wasmex.call_function(instance, "init", [0xA0000])
-
-    # Load default Unicode table at 0x80000
-    default_unicode = Zorb.Interpreter.unicode_table()
-    binary_table = for char <- default_unicode, into: <<>>, do: <<char::integer-size(16)>>
-    Wasmex.Memory.write_binary(store, memory, 0x80000, binary_table)
+    # Init
+    {:ok, _} = Wasmex.call_function(instance, "init", [])
 
     # Run the loop in a separate task so this process can receive input messages
     task = Task.async(fn -> loop(instance, agent, 0) end)
@@ -83,31 +74,73 @@ defmodule Zorb.Runner do
   defp build_imports(agent) do
     zio = %{
       "print_char" => {:fn, [:i32], [], print_char_impl(agent)},
+      "print_num" => {:fn, [:i32], [], print_num_impl(agent)},
       "read_char" => {:fn, [], [:i32], read_char_impl(agent)},
+      "get_random" => {:fn, [:i32], [:i32], get_random_impl(agent)},
       "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
       "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
       "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
       "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], &Zorb.Tokeniser.tokenize/5},
-      "log_step" => {:fn, [:i32, :i32], [], fn _ctx, _pc, _b -> nil end}
+      "log_step" => {:fn, [:i32, :i32, :i32], [], log_step_impl(agent)}
     }
 
     %{
-      "zio" => zio,
-      "Zorb.Capsule.Host" => zio,
-      "Elixir.Zorb.Capsule.Host" => zio
+      "zio" => zio
     }
+  end
+
+  defp log_step_impl(_agent) do
+    fn _ctx, tick, pc, opcode ->
+      # owner = Agent.get(agent, fn s -> s.owner end)
+      # send(owner, {:zorb_step, tick, pc, opcode})
+      # IO.puts(:stderr, "Step #{tick}: PC=0x#{Integer.to_string(pc, 16)} Op=0x#{Integer.to_string(opcode, 16)}")
+      _ = tick
+      _ = pc
+      _ = opcode
+      nil
+    end
   end
 
   defp print_char_impl(agent) do
     fn _ctx, char ->
+      Agent.update(agent, fn s -> %{s | last_char: char} end)
       owner = Agent.get(agent, fn s -> s.owner end)
       send(owner, {:zorb_output, char})
       nil
     end
   end
 
+  defp print_num_impl(agent) do
+    fn _ctx, num ->
+      str = Integer.to_string(num)
+      owner = Agent.get(agent, fn s -> s.owner end)
+
+      for <<c::8 <- str>> do
+        send(owner, {:zorb_output, c})
+      end
+
+      nil
+    end
+  end
+
+  defp get_random_impl(_agent) do
+    fn _ctx, max ->
+      if max > 0 do
+        :rand.uniform(max)
+      else
+        0
+      end
+    end
+  end
+
   defp read_char_impl(agent) do
-    fn _ctx ->
+    fn ctx ->
+      # Ergonomics: Add a space after the prompt (>) if not present.
+      # This happens at the Host level so it only triggers once per logical input request.
+      if Agent.get(agent, fn s -> s.last_char end) == ?> do
+        print_char_impl(agent).(ctx, 32)
+      end
+
       wait_for_input(agent)
     end
   end
@@ -156,7 +189,9 @@ defmodule Zorb.Runner do
   defp loop(instance, agent, steps) when steps < @max_steps do
     case Agent.get(agent, fn s -> s.halt end) do
       nil ->
-        case Wasmex.call_function(instance, "run_steps", [1000], 60_000) do
+        timeout = Agent.get(agent, fn s -> s.timeout end)
+
+        case Wasmex.call_function(instance, "run_steps", [1000], timeout) do
           {:ok, _} -> loop(instance, agent, steps + 1000)
           {:error, reason} -> {:error, reason}
         end
@@ -188,8 +223,8 @@ defmodule Zorb.Runner do
     :error
   end
 
-  defp handle_halt({4, pc, _}) do
-    IO.puts("Halt: Static memory write at PC #{pc}")
+  defp handle_halt({4, pc, addr}) do
+    IO.puts("Halt: Static memory write at PC #{pc} (addr: #{addr})")
     :error
   end
 
