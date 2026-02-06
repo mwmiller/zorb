@@ -10,9 +10,8 @@ defmodule Zorb.TestRuntime do
       {:zio, :get_random_seed, fn -> 12_345 end},
       {:zio, :get_capabilities, fn -> 0 end},
       {:zio, :halt, fn _, _, _ -> 0 end},
-      {:zio, :log_step, fn _, _ -> nil end},
+      {:zio, :log_step, fn _, _ -> nil end}
       # Tokenize is now in WASM only (bespoke assembler)
-      # {:zio, :tokenize, &Zorb.Tokeniser.tokenize/5}
     ]
   end
 

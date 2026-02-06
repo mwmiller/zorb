@@ -1,22 +1,19 @@
-# Parse Buffer Garbage Debug Notes
+## Resolved (February 6, 2026)
+The "garbage" issue was caused by **dictionary pruning** in `Zorb.Capsule.Assembler`. 
 
-## Problem
-After typing a command like "quit" or "w", the game displays:
-```
-I can't use the word 'GARBAGE' here.
-```
+When the Z-machine logic (running in WASM) encounters an error or needs to display a word, it often refers back to the dictionary entry using the `dict_addr` provided in the parse buffer. Because the assembler was zeroing out the dictionary area to save memory, the game was reading zeros, which it then misinterpreted as garbage or empty text.
 
-Where GARBAGE is hundreds of characters like `'c   af'` or `'c   I4'`.
+Disabling the `prune_story_data` logic (or rather, making it a NOP) fixed the issue, allowing V1 and V2 games (like Zork 1) to correctly display error messages and handle commands.
 
-## What Works
-1. ✅ Text display is perfect (all alphabets, punctuation, ZSCII escape)
-2. ✅ Dictionary hash table generation and lookups work
-3. ✅ Words are found in dictionary (game doesn't say "I don't know the word")
-4. ✅ Text buffer is being read correctly by tokenizer
-5. ✅ Parse buffer is being written with valid entries
+## Current Status
+- Dictionary lookups work.
+- Words are recognized.
+- Error messages display the correct words.
+- Zork 1 is fully playable in V1 and V2.
 
-## What's Broken
-The game displays garbage when showing the word back to the user in error messages.
+## Next Steps
+- Re-evaluate if any memory pruning is actually safe, or if we should just keep the full story data intact for compatibility.
+- Consider if we can selectively prune only truly unreachable data (e.g. padding).
 
 ## Investigation Done
 
@@ -165,7 +162,6 @@ Maybe WASM memory alignment or access pattern issue?
 ## Files Changed
 - `lib/zorb/capsule/assembler.ex`: Hash table generation, WASM tokenizer
 - `lib/zorb/interpreter.ex`: Text buffer clearing, alphabet decoding, ZSCII escape
-- `test/test_helper.exs`: Removed Elixir tokenizer reference
 
 ## Tests Passing
 - ✅ All assembler tests including hash table generation

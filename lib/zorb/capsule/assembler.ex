@@ -4,13 +4,17 @@ defmodule Zorb.Capsule.Assembler do
   """
   require Logger
 
+  @interpreter_source_path Path.expand("../interpreter.ex", __DIR__)
+  @external_resource @interpreter_source_path
+  @interpreter_ast Sourceror.parse_string!(File.read!(@interpreter_source_path))
+
+  defp fat_ast, do: unquote(Macro.escape(@interpreter_ast))
+
   def assemble(story_data, module_name) do
     <<version::8, _::binary>> = story_data
 
     # 1. Read fat AST
-    path = "lib/zorb/interpreter.ex"
-    source = File.read!(path)
-    ast = Sourceror.parse_string!(source)
+    ast = fat_ast()
 
     # 2. Prepare Data
     {gb, smb, db, ab, otb} = extract_header_fields(story_data)
@@ -122,7 +126,7 @@ defmodule Zorb.Capsule.Assembler do
         defw mdict(addr: T.Address, w1: I32, w2: I32, w3: I32), I32, combined1: I32 do
           # Hash table stores (w1 << 16) | w2 as combined value at offset 0
           combined1 = I32.or(I32.shl(w1, 16), w2)
-          
+
           if I32.ne(Memory.load!(I32, addr), combined1) do
             return(0)
           end
@@ -670,15 +674,8 @@ defmodule Zorb.Capsule.Assembler do
       else: {0, 0}
   end
 
-  def prune_story_data(data, opts) do
-    dict_base = Keyword.fetch!(opts, :dictionary_base)
-    <<_::binary-size(dict_base), num_sep::8, _::binary>> = data
-    header_end = dict_base + 1 + num_sep
-    <<_::binary-size(header_end), entry_len::8, num_entries::16, _::binary>> = data
-    entries_start = header_end + 3
-    entries_len = num_entries * entry_len
-    <<prefix::binary-size(entries_start), _::binary-size(entries_len), suffix::binary>> = data
-    prefix <> <<0::size(entries_len)-unit(8)>> <> suffix
+  def prune_story_data(data, _opts) do
+    data
   end
 
   def generate_dictionary_hash_table(story_data, dict_base, version) do

@@ -1,29 +1,23 @@
-# Zorb Project Handoff - February 4, 2026
+# Zorb Project Handoff - February 6, 2026
 
-## Current Status: AST-BASED PIPELINE OPERATIONAL
-We have successfully implemented the **AST-based "Baking Factory"** architecture. This transition resolves the issues with string-based code generation and `Orb` macro expansion fragility.
+## Current Status: V1-V3 PLAYABLE
+We have resolved the critical "Parse Buffer Garbage" issue which was preventing V1-V3 stories (like Zork 1) from being playable. 
 
 ## Key Accomplishments in this Session
-1.  **Programmatic Assembler**: Created `Zorb.Capsule.Assembler`, which extracts the Elixir AST directly from the "proven" source in `lib/zorb/interpreter.ex`.
-2.  **Compile-Time Pruning**: Implemented Elixir-time branch pruning. The assembler evaluates `@version` checks at compile-time and strips out logic not relevant to the target story version.
-3.  **Bespoke Data Baking**: Story bytes, Alphabets, and Unicode tables are now baked into WASM `data` segments at fixed addresses (`0x00000`, `0x81000`, `0x80000` respectively).
-4.  **Stable Environment**: The bespoke modules now perfectly mirror the `Zorb.Interpreter` environment (imports, aliases), resolving previous compilation errors.
-5.  **Verified Compliance**: All 8 prover integration tests (V1, V2, V3, V5, V7) are passing through the new pipeline.
+1.  **Fixed Garbage Output**: Identified that dictionary pruning was causing the game to read zeroed-out memory when displaying words or handling errors. Disabled dictionary pruning to ensure full compatibility.
+2.  **Bespoke Pipeline Verified**: The AST-based pipeline is now successfully producing playable WASM capsules for V1, V2, and V3 stories.
+3.  **V1-V2 Stability**: Confirmed that Zork 1 (V1/V2) is fully playable with correct text display and input handling.
+4.  **Logging & Debugging**: Added more informative logging to `Runner` and `Capsule` to improve developer experience during testing.
 
 ## The Architecture
 - **Source of Truth**: `lib/zorb/interpreter.ex` contains the full, multi-version Z-machine logic.
-- **The Factory**: `Zorb.Capsule.Assembler.assemble/2` takes story data and a module name, transforms the interpreter AST, and returns a bespoke module AST. It also prunes the story data (zeroing out dictionary entries) to reduce the memory footprint.
-- **The Engine**: `Zorb.Capsule` uses the assembler to generate, evaluate, and compile the capsule into WASM.
-
-## Known Issue: AST Round-trip & Macro Expansion
-Current integration of `Capsule.compile` into `Zorb.Runner` is pending resolution of a `FunctionClauseError` in `Orb.DSL.Defw.defw/3`. This occurs when evaluating the transformed AST because `Sourceror.to_string` round-tripping strips or alters metadata that `Orb` macros rely on. For now, `Runner` continues to use the generic `Interpreter` module to maintain passing tests.
+- **The Factory**: `Zorb.Capsule.Assembler` generates bespoke modules. Pruning is currently limited to Elixir-time branch removal; story data pruning is disabled for compatibility.
+- **WASM Tokenizer**: The tokenizer is fully implemented in WASM within the bespoke capsule, providing O(1) dictionary lookups via a baked-in hash table.
 
 ## Immediate Next Steps
-- **O(1) Dictionary Lookups**: Refactor the dictionary lookup to use a WASM-side hash table generated during the baking phase.
-- **Input Parsing Hooks**: Inject the "Slash Command" interceptor and social injection points into the capsule AST.
 - **V8 Testing**: Enable and verify Z8 story files using the new pipeline.
-- **Zorbit Social Layer**: Start implementing the host-side command interception in `Zorb.Runner`.
+- **Selective Pruning**: Re-investigate if any parts of the story data (e.g. padding, large static strings if we can prove they are unused) can be safely pruned to reduce capsule size.
+- **Social Layer**: Start implementing host-side command interception in `Zorb.Runner` for the Zorbit social features.
 
-## Cleaned Up
-- Removed the redundant `logic_body.exs`, `logic_template.exs`, and other outdated "dead end" files.
-- Unified the interpreter logic into a single source.
+## Known Issues
+- None at Priority 0. Core V1-V5 and V7-V8 compliance is the current focus.

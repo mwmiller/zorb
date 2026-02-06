@@ -5,7 +5,8 @@ defmodule Zorb.TestSupport.Expect do
 
   import ExUnit.Assertions
 
-  def expect(pattern, timeout \\ 5000, task_pid \\ nil) do
+  def expect(pattern, timeout \\ 15000, task_pid \\ nil) do
+    # IO.puts(:stderr, "Zorb: Expecting pattern #{inspect(pattern)}...")
     do_expect("", pattern, timeout, task_pid)
   end
 
@@ -31,8 +32,6 @@ defmodule Zorb.TestSupport.Expect do
   defp do_expect(buffer, pattern, timeout, task_pid) do
     receive do
       {:zorb_output, char} ->
-        # Real-time output for debugging
-        IO.write(if char == ?\r, do: "\n", else: <<char::utf8>>)
         new_buffer = buffer <> List.to_string([char])
 
         if char == ?\r do

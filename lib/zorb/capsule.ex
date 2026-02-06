@@ -6,11 +6,19 @@ defmodule Zorb.Capsule do
 
   @compiler_version "0.1.0-alpha.1"
   @compiler_files [
-    "lib/zorb/interpreter.ex",
-    "lib/zorb/capsule/assembler.ex",
-    "lib/zorb/interpreter/types.ex",
-    "lib/zorb/capsule/host.ex"
+    "interpreter.ex",
+    "capsule/assembler.ex",
+    "interpreter/types.ex",
+    "capsule/host.ex"
   ]
+
+  @compiler_hash @compiler_files
+                 |> Enum.map(fn path -> Path.expand(path, __DIR__) end)
+                 |> Enum.map(&File.read!/1)
+                 |> Enum.join()
+                 |> then(&:crypto.hash(:sha256, &1))
+                 |> Base.encode16(case: :lower)
+                 |> String.slice(0, 8)
 
   def compiler_version, do: @compiler_version
 
@@ -43,16 +51,20 @@ defmodule Zorb.Capsule do
         :ok
 
       false ->
-        {source, _data} = Assembler.assemble(story_data, module_name)
-        File.mkdir_p!(cache_dir())
-        File.write!(ex_path, source)
+        if File.exists?(ex_path) do
+          Code.compile_file(ex_path)
+        else
+          {source, _data} = Assembler.assemble(story_data, module_name)
+          File.mkdir_p!(cache_dir())
+          File.write!(ex_path, source)
 
-        try do
-          Code.compile_string(source)
-        catch
-          kind, e ->
-            IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
-            reraise e, __STACKTRACE__
+          try do
+            Code.compile_string(source)
+          catch
+            kind, e ->
+              IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
+              reraise e, __STACKTRACE__
+          end
         end
     end
 
@@ -68,17 +80,9 @@ defmodule Zorb.Capsule do
         h -> h
       end
 
-    compiler_hash =
-      @compiler_files
-      |> Enum.map(&File.read!/1)
-      |> Enum.join()
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-      |> String.slice(0, 8)
-
     header_hash = :crypto.hash(:sha256, header) |> Base.encode16(case: :lower)
 
-    "#{@compiler_version}-#{compiler_hash}-#{byte_size(story_data)}-#{String.slice(header_hash, 0, 8)}"
+    "#{@compiler_version}-#{@compiler_hash}-#{byte_size(story_data)}-#{String.slice(header_hash, 0, 8)}"
   end
 
   defp cache_dir do

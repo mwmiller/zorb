@@ -255,7 +255,7 @@ defmodule Zorb.Interpreter do
       pop_stack()
     else
       if I32.lt_u(var, 16) do
-        read_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))))
+        read_call_stack(I32.add(@fp, I32.add(5, I32.sub(var, 1))))
       else
         read_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)))
       end
@@ -269,7 +269,7 @@ defmodule Zorb.Interpreter do
       push_stack(val)
     else
       if I32.lt_u(var, 16) do
-        write_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))), val)
+        write_call_stack(I32.add(@fp, I32.add(5, I32.sub(var, 1))), val)
       else
         write_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)), val)
       end
@@ -281,7 +281,7 @@ defmodule Zorb.Interpreter do
       peek_stack()
     else
       if I32.lt_u(var, 16) do
-        read_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))))
+        read_call_stack(I32.add(@fp, I32.add(5, I32.sub(var, 1))))
       else
         read_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)))
       end
@@ -299,7 +299,7 @@ defmodule Zorb.Interpreter do
       end
     else
       if I32.lt_u(var, 16) do
-        write_call_stack(I32.add(@fp, I32.add(4, I32.sub(var, 1))), val)
+        write_call_stack(I32.add(@fp, I32.add(5, I32.sub(var, 1))), val)
       else
         write_word(I32.add(@globals_base, I32.shl(I32.sub(var, 16), 1)), val)
       end
@@ -307,7 +307,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw push_stack(val: I32) do
-    if(I32.ge_u(@sp, 1024), do: halt(1, @pc, 0))
+    if(I32.ge_u(@sp, 4096), do: halt(1, @pc, 0))
     write_stack(@sp, val)
     @sp = I32.add(@sp, 1)
   end
@@ -1827,6 +1827,7 @@ defmodule Zorb.Interpreter do
     # Store count instead of mask
     push_call_stack(I32.or(I32.shl(count, 8), res))
     push_call_stack(ofp)
+    push_call_stack(@sp)
 
     lc = read_byte(addr)
     @pc = I32.add(addr, 1)
@@ -1873,7 +1874,7 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defw do_return(v: I32), ofp: I32, rpc: T.Address, var: T.Variable do
+  defw do_return(v: I32), ofp: I32, osp: I32, rpc: T.Address, var: T.Variable do
     if I32.eq(@fp, 0) do
       @halted = 1
       halt(0, @pc, 0)
@@ -1884,8 +1885,10 @@ defmodule Zorb.Interpreter do
     rpc = I32.or(read_call_stack(@fp), I32.shl(read_call_stack(I32.add(@fp, 1)), 16))
     var = I32.band(read_call_stack(I32.add(@fp, 2)), 0xFF)
     ofp = read_call_stack(I32.add(@fp, 3))
+    osp = read_call_stack(I32.add(@fp, 4))
     @pc = rpc
     @fp = ofp
+    @sp = osp
     if(I32.ne(var, 0xFF), do: write_variable(var, v))
   end
 
@@ -1927,10 +1930,11 @@ defmodule Zorb.Interpreter do
       # Clear rest of text buffer to avoid garbage
       # Text buffer is max bytes, clear from i+1 to max
       j = I32.add(i, 1)
+
       Control.block ClearTextBlock do
         loop ClearTextLoop do
           if I32.ge_u(j, max), do: ClearTextBlock.break()
-          
+
           write_byte(I32.add(I32.add(buf, st), j), 0)
           j = I32.add(j, 1)
           ClearTextLoop.continue()

@@ -22,14 +22,18 @@ defmodule Zorb.Runner do
     merged_zio = Map.merge(base_imports["zio"], Map.get(overrides, "zio", %{}))
     imports = Map.put(base_imports, "zio", merged_zio)
 
+    require Logger
+    Logger.debug("Zorb: Loading story #{Path.basename(path)}...")
     wasm_bytes = Zorb.Capsule.compile(path)
     {:ok, instance} = Wasmex.start_link(%{bytes: wasm_bytes, imports: imports})
     Agent.update(agent, fn s -> %{s | instance: instance} end)
 
     # Init
+    Logger.debug("Zorb: Calling WASM init...")
     {:ok, _} = Wasmex.call_function(instance, "init", [])
 
     # Run the loop in a separate task so this process can receive input messages
+    Logger.debug("Zorb: Starting loop task...")
     task = Task.async(fn -> loop(instance, agent, 0) end)
 
     message_loop(task, agent)
@@ -80,7 +84,7 @@ defmodule Zorb.Runner do
       "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
       "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
       "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
-      "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], &Zorb.Tokeniser.tokenize/5},
+      "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], fn _ctx, _t, _p, _d, _f -> nil end},
       "log_step" => {:fn, [:i32, :i32, :i32], [], log_step_impl(agent)}
     }
 
@@ -151,6 +155,8 @@ defmodule Zorb.Runner do
         Agent.update(agent, fn s -> %{s | buffer: rest} end)
 
         zscii = if char == 10, do: 13, else: char
+        require Logger
+        Logger.debug("Zorb: wait_for_input returning ZSCII #{zscii} ('#{<<zscii>>}')")
 
         zscii
 
