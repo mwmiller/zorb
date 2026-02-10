@@ -5,7 +5,7 @@ defmodule Zorb.TestSupport.Expect do
 
   import ExUnit.Assertions
 
-  def expect(pattern, timeout \\ 15000, task_pid \\ nil) do
+  def expect(pattern, timeout \\ 15_000, task_pid \\ nil) do
     # IO.puts(:stderr, "Zorb: Expecting pattern #{inspect(pattern)}...")
     do_expect("", pattern, timeout, task_pid)
   end

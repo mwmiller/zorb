@@ -1,4 +1,7 @@
 defmodule Zorb.Capsule.Assembler do
+  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
+  # credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
   @moduledoc """
   Bakes bespoke story capsules by programmatically assembling and pruning the Orb AST using Sourceror.
   """
@@ -38,6 +41,11 @@ defmodule Zorb.Capsule.Assembler do
     if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
 
     # 3. Create Replacement ASTs
+    new_host_registration =
+      quote do
+        Orb.Import.register(Zorb.Capsule.Host)
+      end
+
     new_global_block =
       quote do
         global do
@@ -510,9 +518,12 @@ defmodule Zorb.Capsule.Assembler do
                     node
                 end)
 
-              # Inject memory setup
+              # Inject memory setup and host registration
               final_children =
-                inject_after_use_orb(processed_children, {:__block__, [], new_memory_setup})
+                inject_after_use_orb(
+                  processed_children,
+                  {:__block__, [], [new_host_registration | new_memory_setup]}
+                )
                 |> Enum.reject(&is_nil/1)
 
               {:defmodule, meta, [alias_node, [do: {:__block__, [], final_children}]]}

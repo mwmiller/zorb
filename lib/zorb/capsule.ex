@@ -4,21 +4,7 @@ defmodule Zorb.Capsule do
   """
   alias Zorb.Capsule.Assembler
 
-  @compiler_version "0.1.0-alpha.1"
-  @compiler_files [
-    "interpreter.ex",
-    "capsule/assembler.ex",
-    "interpreter/types.ex",
-    "capsule/host.ex"
-  ]
-
-  @compiler_hash @compiler_files
-                 |> Enum.map(fn path -> Path.expand(path, __DIR__) end)
-                 |> Enum.map(&File.read!/1)
-                 |> Enum.join()
-                 |> then(&:crypto.hash(:sha256, &1))
-                 |> Base.encode16(case: :lower)
-                 |> String.slice(0, 8)
+  @compiler_version Mix.Project.config()[:version]
 
   def compiler_version, do: @compiler_version
 
@@ -40,54 +26,23 @@ defmodule Zorb.Capsule do
 
   defp perform_compile(story_data, opts) do
     base_name = Keyword.get(opts, :name_hint, "Bespoke")
-    hash = :erlang.phash2(story_data) |> Integer.to_string(16) |> String.downcase()
-    module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{hash}"])
+    # hash = :erlang.phash2(story_data) |> Integer.to_string(16) |> String.downcase()
+    unique = :erlang.unique_integer([:positive])
+    module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 
-    key = generate_cache_key(story_data)
-    ex_path = Path.join(cache_dir(), "#{key}.ex")
+    {source, _data} = Assembler.assemble(story_data, module_name)
+    File.write!("tmp/last_assembled.ex", source)
 
-    case Code.ensure_loaded?(module_name) do
-      true ->
-        :ok
-
-      false ->
-        if File.exists?(ex_path) do
-          Code.compile_file(ex_path)
-        else
-          {source, _data} = Assembler.assemble(story_data, module_name)
-          File.mkdir_p!(cache_dir())
-          File.write!(ex_path, source)
-
-          try do
-            Code.compile_string(source)
-          catch
-            kind, e ->
-              IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
-              reraise e, __STACKTRACE__
-          end
-        end
+    try do
+      Code.compile_string(source)
+    catch
+      kind, e ->
+        IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
+        reraise e, __STACKTRACE__
     end
 
     wat = Orb.to_wat(module_name)
     File.write!("tmp/last_generated.wat", wat)
     wat
-  end
-
-  def generate_cache_key(story_data) do
-    header =
-      case story_data do
-        <<h::binary-size(64), _::binary>> -> h
-        h -> h
-      end
-
-    header_hash = :crypto.hash(:sha256, header) |> Base.encode16(case: :lower)
-
-    "#{@compiler_version}-#{@compiler_hash}-#{byte_size(story_data)}-#{String.slice(header_hash, 0, 8)}"
-  end
-
-  defp cache_dir do
-    Application.get_env(:zorb, :cache_dir) ||
-      Path.expand("tmp/zorb_cache")
-      |> Path.join(@compiler_version)
   end
 end

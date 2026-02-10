@@ -25,3 +25,4 @@ zorb-*.tar
 # Ignore books
 /*.epub
 
+test_output.log

@@ -194,8 +194,7 @@ defmodule Zorb.Interpreter do
     @tick 0
   end
 
-  Orb.Import.register(Zorb.Capsule.Host)
-
+  # credo:disable-for-next-line Credo.Check.Design.TagTODO
   # TODO: Implement hash table lookup at 0x82000 (requires baking phase support)
   # For now, these are stubs that return 0
   defw ldict(w1: I32, w2: I32, w3: I32), T.Address do
@@ -565,7 +564,7 @@ defmodule Zorb.Interpreter do
       return()
     end
 
-    if I32.eq(opc, 0x1A) do
+    if I32.eq(opc, 0x1A) or I32.eq(opc, 0x1F) do
       # call_2n
       do_call(unpack_routine_address(o1), 0xFF, 1, o2, 0, 0, 0, 0, 0, 0, 0)
       return()
@@ -750,7 +749,8 @@ defmodule Zorb.Interpreter do
          o7: I32,
          o8: I32
        ),
-       val: I32 do
+       val: I32,
+       char: I32 do
     if I32.eq(opc, 0x1F) do
       # check_arg_count
       if I32.eq(o1, 0) do
@@ -799,10 +799,13 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x04) do
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
       val = read_input(o1)
 
-      if I32.band(mask, 2) do
-        do_tokenise(o1, o2, 0)
+      if I32.ne(o2, 0) do
+        # do_tokenise(o1, o2, 0)
+        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+        Zorb.Capsule.Host.tokenize(o1, o2, 0, 0)
       end
 
       if I32.ge_u(@version, 5) do
@@ -1900,27 +1903,28 @@ defmodule Zorb.Interpreter do
 
     Control.block ILoopBlock do
       loop ILoop do
-        if I32.lt_u(i, max) do
-          # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-          char = unicode_to_zscii(Zorb.Capsule.Host.read_char())
+        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+        char = unicode_to_zscii(Zorb.Capsule.Host.read_char())
 
-          if I32.ne(char, 13) do
-            # V1-4 lowercase conversion
-            if I32.lt_u(@version, 5) do
-              if I32.ge_u(char, I32.const(65)) do
-                if I32.le_u(char, I32.const(90)) do
-                  char = I32.add(char, I32.const(32))
-                end
+        if I32.eq(char, 13) do
+          ILoopBlock.break()
+        end
+
+        if I32.lt_u(i, max) do
+          # V1-4 lowercase conversion
+          if I32.lt_u(@version, 5) do
+            if I32.ge_u(char, I32.const(65)) do
+              if I32.le_u(char, I32.const(90)) do
+                char = I32.add(char, I32.const(32))
               end
             end
-
-            write_byte(I32.add(I32.add(buf, st), i), char)
-            i = I32.add(i, 1)
-            ILoop.continue()
-          else
-            ILoopBlock.break()
           end
+
+          write_byte(I32.add(I32.add(buf, st), i), char)
+          i = I32.add(i, 1)
         end
+
+        ILoop.continue()
       end
     end
 
@@ -2247,7 +2251,7 @@ defmodule Zorb.Interpreter do
     I32.add(I32.shl(addr, @packed_address_shift), @string_offset)
   end
 
-  defw init(), addr: T.Address do
+  defw init(), addr: T.Address, ofp: I32, lc: I32 do
     @version = read_byte(0)
     @globals_base = read_word(0x0C)
     @dictionary_base = read_word(0x08)
@@ -2265,10 +2269,6 @@ defmodule Zorb.Interpreter do
 
     if I32.ge_u(@version, 4) do
       # Spec 11.1.2: Flags 2 at offset 0x10
-      # Bit 3: Font 3 available
-      # Bit 4: Timed input available
-      # Bit 5: Sound effects available
-      # Bit 7: Multiple windows available
       write_word(0x10, I32.or(read_word(0x10), @capabilities))
     end
 
@@ -2288,7 +2288,7 @@ defmodule Zorb.Interpreter do
       end
     end
 
-    if I32.eq(@version, 7) do
+    if I32.eq(@version, 6) do
       @routine_offset = I32.shl(read_word(0x28), 3)
       @string_offset = I32.shl(read_word(0x2A), 3)
     end
@@ -2315,17 +2315,50 @@ defmodule Zorb.Interpreter do
           @object_table_start = I32.add(@object_table_base, 126)
         )
 
-    if(I32.eq(@version, 8), do: @packed_address_shift = 3)
+    # Spec 1.2.3: V8 has a shift of 3 (multiplier 8)
+    if I32.eq(@version, 8) do
+      @packed_address_shift = 3
+    end
 
     if I32.eq(@pc, 0) do
       @pc = read_word(6)
     end
 
-    push_call_stack(0)
-    push_call_stack(0)
-    push_call_stack(0xFF)
-    push_call_stack(0)
-    @fp = 0
+    if I32.eq(@version, 6) do
+      # Spec 11.1.3: V6 start with a routine call
+      # Start addr in word 6 is a PACKED routine address
+      addr = unpack_routine_address(@pc)
+
+      # Push base frame
+      push_call_stack(I32.const(0xFFFF))
+      push_call_stack(I32.const(0xFFFF))
+      push_call_stack(I32.const(0xFF))
+      push_call_stack(I32.const(0))
+      push_call_stack(I32.const(0))
+      @fp = 0
+
+      # Call the routine
+      ofp = @fp
+      @fp = @csp
+      push_call_stack(I32.const(0xFFFF))
+      push_call_stack(I32.const(0xFFFF))
+      push_call_stack(I32.const(0xFF))
+      push_call_stack(ofp)
+      push_call_stack(@sp)
+
+      lc = read_byte(addr)
+      @pc = I32.add(addr, 1)
+      # V6 later than 5, so no default values (Spec 6.4.4)
+    else
+      # Versions 1-5, 7 and 8: Just start at the byte address.
+      # Push base frame so do_return can halt
+      push_call_stack(I32.const(0xFFFF))
+      push_call_stack(I32.const(0xFFFF))
+      push_call_stack(I32.const(0xFF))
+      push_call_stack(I32.const(0))
+      push_call_stack(I32.const(0))
+      @fp = 0
+    end
   end
 
   defw set_pc(npc: I32) do

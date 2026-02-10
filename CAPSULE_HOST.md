@@ -24,6 +24,25 @@ Reasons include:
 - `3`: Illegal opcode
 - `4`: Static memory violation
 
+### `tokenize(text_addr: i32, parse_addr: i32, dict_addr: i32, flag: i32)`
+Performs lexical analysis on a text buffer and writes the results to a parse buffer. This is an optional host import that can be used to offload tokenization from WASM to the host (e.g., for performance or to use a more complex tokenizer).
+
+#### Implementation Details:
+1.  **Read Version**: The Z-machine version is at byte address `0x00` in WASM memory.
+2.  **Read Text**: The text buffer format depends on the version:
+    -   **V1-4**: `max_length` at byte 0, followed by `\0`-terminated ZSCII text.
+    -   **V5+**: `max_length` at byte 0, `actual_length` at byte 1, followed by ZSCII text.
+3.  **Read Dictionary**: The dictionary contains a list of separators and entry information.
+4.  **Tokenize**: Split the text by separators and spaces.
+5.  **Lookup**: For each word, encode it into Z-characters (6 for V1-3, 9 for V4+) and find its address in the dictionary.
+6.  **Write Parse Buffer**:
+    -   Byte 0: Maximum number of words (read from buffer).
+    -   Byte 1: Number of words found (written by tokenizer).
+    -   Subsequent 4-byte entries: `[dict_addr:16 (big-endian), word_len:8, word_offset:8]`.
+
+#### Elixir Usage:
+In `Zorb.Runner`, the `tokenize` import is mapped to `&Zorb.Tokeniser.tokenize/5`. This implementation reads WASM memory, performs the analysis in Elixir, and writes the results back to WASM memory.
+
 ## Optional Interface (Capabilities)
 
 The Host can signal support for optional features. The Capsule checks these via the following host import:

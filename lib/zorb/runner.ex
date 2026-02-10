@@ -23,17 +23,17 @@ defmodule Zorb.Runner do
     imports = Map.put(base_imports, "zio", merged_zio)
 
     require Logger
-    Logger.debug("Zorb: Loading story #{Path.basename(path)}...")
+    # Logger.debug("Zorb: Loading story #{Path.basename(path)}...")
     wasm_bytes = Zorb.Capsule.compile(path)
     {:ok, instance} = Wasmex.start_link(%{bytes: wasm_bytes, imports: imports})
     Agent.update(agent, fn s -> %{s | instance: instance} end)
 
     # Init
-    Logger.debug("Zorb: Calling WASM init...")
+    # Logger.debug("Zorb: Calling WASM init...")
     {:ok, _} = Wasmex.call_function(instance, "init", [])
 
     # Run the loop in a separate task so this process can receive input messages
-    Logger.debug("Zorb: Starting loop task...")
+    # Logger.debug("Zorb: Starting loop task...")
     task = Task.async(fn -> loop(instance, agent, 0) end)
 
     message_loop(task, agent)
@@ -57,7 +57,7 @@ defmodule Zorb.Runner do
             send(task.pid, {:zorb_input_ready})
             message_loop(task, agent)
 
-          {^task, res} ->
+          {ref, res} when is_reference(ref) and ref == task.ref ->
             res
 
           {:DOWN, _ref, :process, _pid, _reason} ->
@@ -84,7 +84,14 @@ defmodule Zorb.Runner do
       "get_random_seed" => {:fn, [], [:i32], get_random_seed_impl()},
       "get_capabilities" => {:fn, [], [:i32], get_capabilities_impl()},
       "halt" => {:fn, [:i32, :i32, :i32], [], halt_impl(agent)},
-      "tokenize" => {:fn, [:i32, :i32, :i32, :i32], [], fn _ctx, _t, _p, _d, _f -> nil end},
+      "tokenize" =>
+        {:fn, [:i32, :i32, :i32, :i32], [],
+         fn ctx, t, p, d, f ->
+           res = Zorb.Tokeniser.tokenize(ctx, t, p, d, f)
+           # We can't easily see the result here since tokenize writes to WASM memory,
+           # but we could add logging inside Tokeniser.
+           res
+         end},
       "log_step" => {:fn, [:i32, :i32, :i32], [], log_step_impl(agent)}
     }
 
@@ -95,12 +102,11 @@ defmodule Zorb.Runner do
 
   defp log_step_impl(_agent) do
     fn _ctx, tick, pc, opcode ->
-      # owner = Agent.get(agent, fn s -> s.owner end)
-      # send(owner, {:zorb_step, tick, pc, opcode})
-      # IO.puts(:stderr, "Step #{tick}: PC=0x#{Integer.to_string(pc, 16)} Op=0x#{Integer.to_string(opcode, 16)}")
-      _ = tick
-      _ = pc
-      _ = opcode
+      IO.puts(
+        :stderr,
+        "Zorb: Step #{tick}: PC=0x#{Integer.to_string(pc, 16)} Op=0x#{Integer.to_string(opcode, 16)}"
+      )
+
       nil
     end
   end
@@ -156,7 +162,7 @@ defmodule Zorb.Runner do
 
         zscii = if char == 10, do: 13, else: char
         require Logger
-        Logger.debug("Zorb: wait_for_input returning ZSCII #{zscii} ('#{<<zscii>>}')")
+        # Logger.debug("Zorb: wait_for_input returning ZSCII #{zscii} ('#{<<zscii>>}')")
 
         zscii
 

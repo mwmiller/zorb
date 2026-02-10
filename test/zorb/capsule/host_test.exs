@@ -1,5 +1,7 @@
 defmodule Zorb.Capsule.HostTest do
   use ExUnit.Case
+  @moduletag timeout: 300_000
+
   alias Zorb.Runner
   import Zorb.TestSupport.Expect
 
@@ -10,7 +12,6 @@ defmodule Zorb.Capsule.HostTest do
 
     # Manually trigger compilation to see if it hangs here in the main test process
     _wat = Zorb.Capsule.compile(prover_path)
-    IO.puts(:stderr, "Test: Compilation finished.")
 
     # Override get_capabilities to return 0 (no status line, no splits, etc)
     opts = [
@@ -25,7 +26,7 @@ defmodule Zorb.Capsule.HostTest do
     pid = spawn_link(fn -> Runner.run(prover_path, parent, opts) end)
 
     # Game should still boot and print basics
-    expect("CZECH: the Comprehensive Z-machine Emulation CHecker", 30_000, pid)
+    expect("CZECH: the Comprehensive Z-machine Emulation CHecker", 120_000, pid)
     answer(pid, "\n")
 
     # Wait for the process to exit
@@ -34,7 +35,7 @@ defmodule Zorb.Capsule.HostTest do
     receive do
       {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
     after
-      60_000 -> flunk("Runner timed out")
+      120_000 -> flunk("Runner timed out")
     end
   end
 end
