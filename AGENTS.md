@@ -18,3 +18,5 @@
 ## Testing
 - Run integration tests with: `mix test`
 - Use `mix precommit` before any significant change to ensure standards and tests pass.
+- **Commit Rules**: Milestone commits must NEVER use `--no-verify`. Only checkpoint commits are permitted to bypass pre-commit hooks.
+

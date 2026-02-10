@@ -31,10 +31,10 @@ defmodule Zorb.TestSupport.Expect do
 
   defp do_expect(buffer, pattern, timeout, task_pid) do
     receive do
-      {:zorb_output, char} ->
-        new_buffer = buffer <> List.to_string([char])
+      {:zorb_output, output} ->
+        new_buffer = append_output(buffer, output)
 
-        if char == ?\r do
+        if is_integer(output) and output == ?\r do
           check_disputes!(new_buffer)
         end
 
@@ -70,6 +70,13 @@ defmodule Zorb.TestSupport.Expect do
         end
     end
   end
+
+  defp append_output(buffer, char) when is_integer(char), do: buffer <> List.to_string([char])
+  defp append_output(buffer, {:cursor, line, col}), do: buffer <> "\n[Cursor: #{line}, #{col}]\n"
+  defp append_output(buffer, {:erase_window, id}), do: buffer <> "\n[Erase Window: #{id}]\n"
+  defp append_output(buffer, {:erase_line, val}), do: buffer <> "[Erase Line: #{val}]"
+  defp append_output(buffer, {:style, style}), do: buffer <> "[Style: #{style}]"
+  defp append_output(buffer, other), do: buffer <> "[Unknown Output: #{inspect(other)}]"
 
   defp check_disputes!(buffer) do
     for d <- Process.get(:zorb_disputes, []) do

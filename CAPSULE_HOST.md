@@ -27,21 +27,37 @@ Reasons include:
 ### `tokenize(text_addr: i32, parse_addr: i32, dict_addr: i32, flag: i32)`
 Performs lexical analysis on a text buffer and writes the results to a parse buffer. This is an optional host import that can be used to offload tokenization from WASM to the host (e.g., for performance or to use a more complex tokenizer).
 
-#### Implementation Details:
-1.  **Read Version**: The Z-machine version is at byte address `0x00` in WASM memory.
-2.  **Read Text**: The text buffer format depends on the version:
-    -   **V1-4**: `max_length` at byte 0, followed by `\0`-terminated ZSCII text.
-    -   **V5+**: `max_length` at byte 0, `actual_length` at byte 1, followed by ZSCII text.
-3.  **Read Dictionary**: The dictionary contains a list of separators and entry information.
-4.  **Tokenize**: Split the text by separators and spaces.
-5.  **Lookup**: For each word, encode it into Z-characters (6 for V1-3, 9 for V4+) and find its address in the dictionary.
-6.  **Write Parse Buffer**:
-    -   Byte 0: Maximum number of words (read from buffer).
-    -   Byte 1: Number of words found (written by tokenizer).
-    -   Subsequent 4-byte entries: `[dict_addr:16 (big-endian), word_len:8, word_offset:8]`.
+## Screen Model Interface (V3-V8)
 
-#### Elixir Usage:
-In `Zorb.Runner`, the `tokenize` import is mapped to `&Zorb.Tokeniser.tokenize/5`. This implementation reads WASM memory, performs the analysis in Elixir, and writes the results back to WASM memory.
+The following functions are used to implement the Z-machine screen model (Spec 8). If the Host signals support via `get_capabilities`, it **must** provide these:
+
+### `set_window(window_id: i32)`
+Directs subsequent output and cursor operations to the specified window.
+- `0`: Lower window (scrolling).
+- `1`: Upper window (non-scrolling).
+
+### `split_window(lines: i32)`
+Splits the screen so that Window 1 occupies the top `lines` of the display. If `lines` is 0, Window 1 is collapsed. In a CLI, this typically reserves the top N lines for a fixed status display.
+
+### `set_cursor(line: i32, col: i32)`
+Moves the cursor to the specified coordinates within the currently selected window. Coordinates are 1-indexed.
+
+### `erase_window(window_id: i32)`
+Clears the specified window. If `window_id` is `-1`, the entire screen is cleared and all windows are reset.
+
+### `erase_line(value: i32)`
+Erases from the current cursor position to the end of the line.
+
+### `set_text_style(style: i32)`
+Sets the text rendering style. Styles are bit-mapped:
+- `0`: Roman (Normal)
+- `1`: Reverse Video
+- `2`: Bold
+- `4`: Italic
+- `8`: Fixed-pitch
+
+### `get_screen_size() -> i32`
+Returns the current dimensions of the host display as a packed 32-bit integer: `[height:16, width:16]`.
 
 ## Optional Interface (Capabilities)
 

@@ -843,11 +843,15 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x0A) do
       # split_window
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.split_window(o1)
       return()
     end
 
     if I32.eq(opc, 0x0B) do
       # set_window
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.set_window(o1)
       return()
     end
 
@@ -872,16 +876,34 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x0D) do
       # erase_window
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.erase_window(o1)
+      return()
+    end
+
+    if I32.eq(opc, 0x0E) do
+      # erase_line
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.erase_line(o1)
       return()
     end
 
     if I32.eq(opc, 0x0F) do
-      # set_colour
+      # set_cursor
+      if I32.eq(@version, 6) do
+        # V6 has different arguments, but we ignore V6
+        return()
+      end
+
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.set_cursor(o1, o2)
       return()
     end
 
     if I32.eq(opc, 0x11) do
       # set_text_style
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.set_text_style(o1)
       return()
     end
 
@@ -1786,6 +1808,8 @@ defmodule Zorb.Interpreter do
 
   defwp calculate_arg_count(mask: I32), I32, c: I32 do
     c = 0
+    # Bits 7:6 (Arg 0)
+    if I32.ne(I32.band(I32.shr_u(mask, 6), 3), 3), do: c = I32.add(c, 1)
     # Bits 5:4 (Arg 1)
     if I32.ne(I32.band(I32.shr_u(mask, 4), 3), 3), do: c = I32.add(c, 1)
     # Bits 3:2 (Arg 2)
@@ -2271,6 +2295,7 @@ defmodule Zorb.Interpreter do
     @sp = 0
     @csp = 0
     @fp = 0
+    @halted = 0
     @current_font = 1
     @current_alphabet = 0
     @next_alphabet = -1

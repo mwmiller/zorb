@@ -11,4 +11,13 @@ defmodule Zorb.Capsule.Host do
   defw(halt(reason: I32, pc: I32, opcode: I32))
   defw(tokenize(text: I32, parse: I32, dict: I32, flag: I32))
   defw(log_step(tick: I32, pc: I32, opcode: I32))
+
+  # Screen Model
+  defw(set_window(window_id: I32))
+  defw(split_window(lines: I32))
+  defw(set_cursor(line: I32, col: I32))
+  defw(erase_window(window_id: I32))
+  defw(erase_line(value: I32))
+  defw(set_text_style(style: I32))
+  defw(get_screen_size(), I32)
 end

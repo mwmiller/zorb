@@ -1,6 +1,6 @@
 defmodule Zorb.ProverTest do
   use ExUnit.Case
- 
+
   @moduletag timeout: 600_000
   @moduletag :capture_log
   alias Zorb.Runner

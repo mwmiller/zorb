@@ -9,10 +9,19 @@ defmodule Zorb.Runner do
     # Get Extension Table address from Header word 0x34
     if story == nil, do: raise("No story provided")
 
-    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner, last_char: nil, timeout: timeout}
+    # Agent state: %{instance: nil, buffer: [], halt: nil, owner: owner, last_char: nil, timeout: timeout,
+    #                current_window: 0}
     {:ok, agent} =
       Agent.start_link(fn ->
-        %{instance: nil, buffer: [], halt: nil, owner: owner, last_char: nil, timeout: timeout}
+        %{
+          instance: nil,
+          buffer: [],
+          halt: nil,
+          owner: owner,
+          last_char: nil,
+          timeout: timeout,
+          current_window: 0
+        }
       end)
 
     base_imports = build_imports(agent)
@@ -85,12 +94,16 @@ defmodule Zorb.Runner do
       "tokenize" =>
         {:fn, [:i32, :i32, :i32, :i32], [],
          fn ctx, t, p, d, f ->
-           res = Zorb.Tokeniser.tokenize(ctx, t, p, d, f)
-           # We can't easily see the result here since tokenize writes to WASM memory,
-           # but we could add logging inside Tokeniser.
-           res
+           Zorb.Tokeniser.tokenize(ctx, t, p, d, f)
          end},
-      "log_step" => {:fn, [:i32, :i32, :i32], [], log_step_impl(agent)}
+      "log_step" => {:fn, [:i32, :i32, :i32], [], log_step_impl(agent)},
+      "set_window" => {:fn, [:i32], [], set_window_impl(agent)},
+      "split_window" => {:fn, [:i32], [], split_window_impl(agent)},
+      "set_cursor" => {:fn, [:i32, :i32], [], set_cursor_impl(agent)},
+      "erase_window" => {:fn, [:i32], [], erase_window_impl(agent)},
+      "erase_line" => {:fn, [:i32], [], erase_line_impl(agent)},
+      "set_text_style" => {:fn, [:i32], [], set_text_style_impl(agent)},
+      "get_screen_size" => {:fn, [], [:i32], get_screen_size_impl(agent)}
     }
 
     %{
@@ -180,8 +193,64 @@ defmodule Zorb.Runner do
   end
 
   defp get_capabilities_impl do
+    # Bit 0: Status line available
+    # Bit 1: Screen splitting available
+    # Bit 2: Variable-width font available
     # Bit 3: Font 3 (character graphics) available
-    fn _ctx -> 0x08 end
+    fn _ctx -> 0x0F end
+  end
+
+  defp set_window_impl(agent) do
+    fn _ctx, window_id ->
+      Agent.update(agent, fn s -> %{s | current_window: window_id} end)
+      nil
+    end
+  end
+
+  defp split_window_impl(_agent) do
+    fn _ctx, _lines ->
+      nil
+    end
+  end
+
+  defp set_cursor_impl(agent) do
+    fn _ctx, line, col ->
+      owner = Agent.get(agent, fn s -> s.owner end)
+      send(owner, {:zorb_output, {:cursor, line, col}})
+      nil
+    end
+  end
+
+  defp erase_window_impl(agent) do
+    fn _ctx, window_id ->
+      owner = Agent.get(agent, fn s -> s.owner end)
+      send(owner, {:zorb_output, {:erase_window, window_id}})
+      nil
+    end
+  end
+
+  defp erase_line_impl(agent) do
+    fn _ctx, value ->
+      owner = Agent.get(agent, fn s -> s.owner end)
+      send(owner, {:zorb_output, {:erase_line, value}})
+      nil
+    end
+  end
+
+  defp set_text_style_impl(agent) do
+    fn _ctx, style ->
+      owner = Agent.get(agent, fn s -> s.owner end)
+      send(owner, {:zorb_output, {:style, style}})
+      nil
+    end
+  end
+
+  defp get_screen_size_impl(_agent) do
+    fn _ctx ->
+      # Return 24 rows, 80 columns
+      import Bitwise
+      24 <<< 16 ||| 80
+    end
   end
 
   defp halt_impl(agent) do

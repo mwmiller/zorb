@@ -15,5 +15,7 @@ We have established a new known good baseline at commit `cd3c1b7eaa3cc07e1271c19
 
 ## Immediate Next Steps
 - **V6 Policy**: Maintain the exclusion of V6 support.
+- **Commit Standards**: Milestone commits must NEVER use `--no-verify`. This flag is reserved for checkpoint commits only.
 - **Stability**: Ensure all future changes are measured against the established baseline.
 - **Cleanup**: Continue monitoring for opportunities to prune unused story data in the Baking Factory.
+
