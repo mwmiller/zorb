@@ -29,11 +29,9 @@ defmodule Zorb.Runner do
     Agent.update(agent, fn s -> %{s | instance: instance} end)
 
     # Init
-    # Logger.debug("Zorb: Calling WASM init...")
     {:ok, _} = Wasmex.call_function(instance, "init", [])
 
     # Run the loop in a separate task so this process can receive input messages
-    # Logger.debug("Zorb: Starting loop task...")
     task = Task.async(fn -> loop(instance, agent, 0) end)
 
     message_loop(task, agent)

@@ -1,9 +1,8 @@
 defmodule Zorb.ProverTest do
   use ExUnit.Case
-
-  @moduletag timeout: 300_000
+ 
+  @moduletag timeout: 600_000
   @moduletag :capture_log
-
   alias Zorb.Runner
   import Zorb.TestSupport.Expect
 
@@ -155,6 +154,21 @@ defmodule Zorb.ProverTest do
 
     expect("units 0 by 0", 120_000, task.pid)
     answer(task.pid, "quit\n")
+
+    Task.await(task, :infinity)
+  end
+
+  test "lostpig.z8 integration" do
+    prover_path = Path.join(@prover_dir, "lostpig.z8")
+    owner = self()
+
+    task = Task.async(fn -> Runner.run(prover_path, owner, timeout: :infinity) end)
+
+    expect(~r/Lost Pig/i, 300_000, task.pid)
+    expect(~r/Grunk think that pig probably go this way/i, 300_000, task.pid)
+    answer(task.pid, "quit\n")
+    expect(~r/Are you sure you want to quit/i, 300_000, task.pid)
+    answer(task.pid, "y\n")
 
     Task.await(task, :infinity)
   end

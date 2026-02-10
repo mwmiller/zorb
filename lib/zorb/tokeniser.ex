@@ -23,8 +23,6 @@ defmodule Zorb.Tokeniser do
     # 3. Read dictionary
     dict_addr = if dict_addr == 0, do: read_word(caller, memory, 0x08), else: dict_addr
     dict_info = read_dictionary(caller, memory, dict_addr)
-    # # require Logger
-    # # Logger.debug("Zorb: Dictionary info: addr=0x#{Integer.to_string(dict_addr, 16)} entries=#{dict_info.num_entries} len=#{dict_info.entry_len}")
 
     # 4. Split into words
     words = split_with_offsets(text, dict_info.separators)
@@ -150,12 +148,12 @@ defmodule Zorb.Tokeniser do
     a2 =
       case version do
         1 -> ~c" 0123456789.,!?_#'\"/\\<-:()"
-        2 -> ~c" \r0123456789.,!?_#'\"/\\-:()"
-        _ -> ~c" 0123456789.,!?_#'\"/\\-:() "
+        _ -> [0, 13] ++ ~c"0123456789.,!?_#'\"/\\-:()"
       end
 
     # Priority: A0 > A1 > A2
     map = %{}
+    map = Map.put(map, 32, {0, 0})
 
     map =
       Enum.with_index(a2) |> Enum.reduce(map, fn {c, i}, acc -> Map.put(acc, c, {2, i + 6}) end)
@@ -232,9 +230,6 @@ defmodule Zorb.Tokeniser do
     addr = start + mid * len
     word_len = byte_size(encoded)
     entry = Wasmex.Memory.read_binary(caller, memory, addr, word_len)
-
-    # # require Logger
-    # # Logger.debug("Zorb: Dict search mid=#{mid} addr=0x#{Integer.to_string(addr, 16)} entry=#{Base.encode16(entry)} vs encoded=#{Base.encode16(encoded)}")
 
     cond do
       entry == encoded -> addr

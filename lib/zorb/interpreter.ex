@@ -875,6 +875,11 @@ defmodule Zorb.Interpreter do
       return()
     end
 
+    if I32.eq(opc, 0x0F) do
+      # set_colour
+      return()
+    end
+
     if I32.eq(opc, 0x11) do
       # set_text_style
       return()
@@ -1918,6 +1923,11 @@ defmodule Zorb.Interpreter do
                 char = I32.add(char, I32.const(32))
               end
             end
+          end
+
+          # Spec 13.3: converted to lower case
+          if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
+            char = I32.add(char, 32)
           end
 
           write_byte(I32.add(I32.add(buf, st), i), char)
