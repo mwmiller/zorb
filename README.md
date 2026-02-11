@@ -25,7 +25,16 @@ end
 
 ### Running a Story
 
-You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI:
+You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI.
+
+#### Building the Escript
+
+```bash
+mix escript.build
+./zorb path/to/your/story.z5
+```
+
+Alternatively, use the provided wrapper script:
 
 ```bash
 bin/run_story path/to/your/story.z5
@@ -35,12 +44,30 @@ bin/run_story path/to/your/story.z5
 
 To run a story within your own Elixir application:
 
-```elixir
-# Start the runner with a story file
-{:ok, runner_pid} = Zorb.Runner.run("path/to/story.z5")
+#### Using Zorb.Session (Recommended for Phoenix/OTP)
 
-# Listen for output
-# Output is sent as {:zorb_output, char_code} messages to the calling process
+`Zorb.Session` is a `GenServer` that provides a non-blocking, asynchronous interface. It is ideal for use in Phoenix channels or anywhere you need a long-lived, supervised process.
+
+```elixir
+# Start the session from a story file with caching enabled
+{:ok, session_pid} = Zorb.Session.start_link({:story_path, "path/to/story.z5"}, notify_to: self(), cache: true)
+
+# Or start from previously compiled WASM bytes (WAT also accepted)
+{:ok, session_pid} = Zorb.Session.start_link({:wasm_bytes, wasm_binary}, notify_to: self())
+
+# Listen for messages in your process
+receive do
+  {:zorb_output, char} when is_integer(char) -> 
+    IO.write([char])
+  {:zorb_output, {:cursor, line, col}} -> 
+    # Handle screen model commands
+    :ok
+  {:zorb_halt, reason, pc, _opcode} ->
+    IO.puts("Game halted.")
+end
+
+# Send input to the game
+Zorb.Session.send_input(session_pid, "look\n")
 ```
 
 ## Core Architecture: Game Capsules

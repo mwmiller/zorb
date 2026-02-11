@@ -9,8 +9,14 @@ The Host **must** provide the following functions:
 ### `print_char(char: i32)`
 Outputs a single ZSCII/Unicode character to the user's display.
 
+### `print_num(num: i32)`
+Outputs a signed 32-bit integer to the user's display.
+
 ### `read_char() -> i32`
 Waits for a single character input from the user and returns its ZSCII value.
+
+### `get_random(max: i32) -> i32`
+Returns a random integer between 1 and `max` (inclusive). If `max` is negative or zero, it may reset the PRNG state.
 
 ### `get_random_seed() -> i32`
 Returns a 32-bit integer to seed the Z-machine's internal PRNG.
@@ -26,6 +32,9 @@ Reasons include:
 
 ### `tokenize(text_addr: i32, parse_addr: i32, dict_addr: i32, flag: i32)`
 Performs lexical analysis on a text buffer and writes the results to a parse buffer. This is an optional host import that can be used to offload tokenization from WASM to the host (e.g., for performance or to use a more complex tokenizer).
+
+### `log_step(tick: i32, pc: i32, opcode: i32)`
+Optional import for instruction-level tracing. Called before each opcode execution.
 
 ## Screen Model Interface (V3-V8)
 

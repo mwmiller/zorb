@@ -125,6 +125,10 @@ defmodule Zorb.Tokeniser do
 
     zchars = Enum.take(zchars ++ [5, 5, 5, 5, 5, 5, 5, 5, 5], num_zchars)
 
+    # Pad to multiple of 3 for chunking
+    padding_needed = rem(3 - rem(num_zchars, 3), 3)
+    zchars = zchars ++ List.duplicate(5, padding_needed)
+
     # Pack into 16-bit words
     words =
       for [c1, c2, c3] <- Enum.chunk_every(zchars, 3) do
@@ -192,6 +196,8 @@ defmodule Zorb.Tokeniser do
   defp get_shifts(version, _curr, target) do
     case {version, target} do
       {_, 0} -> []
+      {v, 1} when v <= 2 -> [2]
+      {v, 2} when v <= 2 -> [3]
       {_, 1} -> [4]
       {_, 2} -> [5]
       _ -> []

@@ -140,7 +140,7 @@ defmodule Zorb.TestSupport.Expect do
         chars
       end
 
-    Zorb.Runner.inject_input(pid, chars)
+    for char <- chars, do: Zorb.Session.send_input(pid, char)
     # Give the Z-machine a tiny bit of time to start processing
     Process.sleep(10)
   end
