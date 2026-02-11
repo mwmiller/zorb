@@ -65,4 +65,8 @@ All integration tests use the bespoke capsule system:
 ```bash
 mix test
 ```
-The first run for a new story file may take several seconds as it "bakes" the optimized capsule. Subsequent runs are near-instant due to caching.
+The first run for a new story file may take several seconds as it "bakes" the optimized capsule. Compilation is currently handled on the consumer side; if intermediate artifacts emerge that benefit from shared persistence, a global cache may be reintroduced.
+
+### Test Resources
+For additional Z-machine test files and stories, we recommend the [zifmia](https://github.com/jeffnyman/zifmia) repository.
+

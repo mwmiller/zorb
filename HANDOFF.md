@@ -10,6 +10,8 @@ We have established a new known good baseline at commit `cd3c1b7eaa3cc07e1271c19
 
 ## Current State
 - **Performance**: High-performance "Baking Factory" approach.
+- **Caching**: Internal compile caching has been removed in favor of consumer-side handling.
+- **Resources**: [zifmia](https://github.com/jeffnyman/zifmia) has been identified as a valuable source for additional test stories.
 - **Environment**: Test timeouts are optimized for resource-constrained systems.
 - **Documentation**: Sanitized and consolidated documentation for clear project purpose.
 

@@ -26,7 +26,6 @@ defmodule Zorb.Capsule do
 
   defp perform_compile(story_data, opts) do
     base_name = Keyword.get(opts, :name_hint, "Bespoke")
-    # hash = :erlang.phash2(story_data) |> Integer.to_string(16) |> String.downcase()
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 

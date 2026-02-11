@@ -69,11 +69,5 @@ end
 ### Identifying Infinite Loops
 Use prime-numbered sampling (e.g., every 719 steps) to detect patterns without syncing with the loop period.
 
-### Cache Management
-When modifying the interpreter logic, clear the cache to ensure changes are reflected:
-```bash
-rm -rf tmp/zorb_cache/*
-```
-
 ## External Specification Links
 - [Standard 1.1 Specification](https://zspec.jaredreisinger.com/)
