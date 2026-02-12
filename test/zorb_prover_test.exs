@@ -160,7 +160,6 @@ defmodule Zorb.ProverTest do
     end
   end
 
-  
   test "zork1.z1 integration" do
     prover_path = Path.join(@prover_dir, "zork1.z1")
     owner = self()
@@ -186,7 +185,6 @@ defmodule Zorb.ProverTest do
     end
   end
 
-  
   test "zork1.z2 integration" do
     prover_path = Path.join(@prover_dir, "zork1.z2")
     owner = self()
@@ -234,7 +232,6 @@ defmodule Zorb.ProverTest do
     end
   end
 
-  
   test "lostpig.z8 integration" do
     prover_path = Path.join(@prover_dir, "lostpig.z8")
     owner = self()
@@ -244,7 +241,7 @@ defmodule Zorb.ProverTest do
     expect(~r/Lost Pig/i, 300_000, pid)
     expect(~r/Grunk think that pig probably go this way/i, 300_000, pid)
     answer(pid, "quit\n")
-    expect(~r/Are you sure you want to quit/i, 300_000, pid)
+    expect(~r/Really all done with story/i, 300_000, pid)
     answer(pid, "y\n")
 
     # Wait for halt

@@ -94,21 +94,24 @@ defmodule Zorb.Capsule.Assembler do
     alphabets = a0 ++ a1 ++ a2_v1 ++ a2_v2
     if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
 
-    # Chunk the story data to avoid massive literals in the AST
-    chunk_size = 4096
-    story_chunks = for offset <- 0..(byte_size(pruned_story) - 1) |> Enum.take_every(chunk_size) do
-      len = min(chunk_size, byte_size(pruned_story) - offset)
-      {offset, :binary.bin_to_list(binary_part(pruned_story, offset, len))}
-    end
-
     # Create a payload of baked data to be loaded during module compilation
+    chunk_size = 4096
+
+    story_chunks =
+      for offset <- 0..(byte_size(pruned_story) - 1) |> Enum.take_every(chunk_size) do
+        len = min(chunk_size, byte_size(pruned_story) - offset)
+        {offset, :binary.bin_to_list(binary_part(pruned_story, offset, len))}
+      end
+
     payload = %{
       story_chunks: story_chunks,
       unicode: :binary.bin_to_list(unicode),
       hash: :binary.bin_to_list(hash_table)
     }
 
-    payload_path = Path.expand("tmp/payload_#{version}_#{:erlang.unique_integer([:positive])}.bin")
+    payload_path =
+      Path.expand("tmp/payload_#{version}_#{:erlang.unique_integer([:positive])}.bin")
+
     File.mkdir_p!("tmp")
     File.write!(payload_path, :erlang.term_to_binary(payload))
 
@@ -161,10 +164,12 @@ defmodule Zorb.Capsule.Assembler do
       quote(do: Orb.Memory.pages(16)),
       quote do
         @payload File.read!(unquote(payload_path)) |> :erlang.binary_to_term()
+
         # Load story chunks
         for {off, list} <- @payload.story_chunks do
           Orb.Memory.initial_data!(off, u8: list)
         end
+
         Orb.Memory.initial_data!(0x80000, u8: @payload.unicode)
         Orb.Memory.initial_data!(0x81000, u8: unquote(alphabets))
         Orb.Memory.initial_data!(0x82000, u8: @payload.hash)
@@ -1094,33 +1099,7 @@ defmodule Zorb.Capsule.Assembler do
     source_code = Sourceror.to_string(final_ast)
     File.write!("tmp/last_bespoke_source.ex", source_code)
 
-    data = %{
-      bespoke_story_data: pruned_story,
-      bespoke_unicode_bin: unicode,
-      bespoke_alphabets_bin: alphabets,
-      bespoke_hash_table_bin: hash_table
-    }
-
-    {source_code, data}
-  end
-
-  defp chunk_initial_data(base_offset, bin) do
-    chunk_size = 512
-
-    bin
-    |> byte_size()
-    |> then(fn size ->
-      if size == 0 do
-        []
-      else
-        for offset <- 0..(size - 1) |> Enum.take_every(chunk_size) do
-          len = min(chunk_size, size - offset)
-          chunk = binary_part(bin, offset, len)
-          bytes = :binary.bin_to_list(chunk)
-          quote do: Orb.Memory.initial_data!(unquote(base_offset + offset), u8: unquote(bytes))
-        end
-      end
-    end)
+    {source_code, nil}
   end
 
   def prune_version_branches(ast, version) do

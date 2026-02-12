@@ -1,3 +1,4 @@
+Logger.configure(level: :info)
 ExUnit.start()
 
 defmodule Zorb.TestRuntime do
