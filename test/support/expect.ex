@@ -6,8 +6,8 @@ defmodule Zorb.TestSupport.Expect do
   import ExUnit.Assertions
 
   def expect(pattern, timeout \\ 15_000, task_pid \\ nil) do
-    # IO.puts(:stderr, "Zorb: Expecting pattern #{inspect(pattern)}...")
-    do_expect("", pattern, timeout, task_pid)
+    buffer = Process.get(:zorb_expect_buffer, "")
+    do_expect(buffer, pattern, timeout, task_pid)
   end
 
   def dispute(pattern) do
@@ -30,44 +30,53 @@ defmodule Zorb.TestSupport.Expect do
   end
 
   defp do_expect(buffer, pattern, timeout, task_pid) do
-    receive do
-      {:zorb_output, output} ->
-        new_buffer = append_output(buffer, output)
+    if matches?(buffer, pattern) do
+      Process.put(:zorb_expect_buffer, buffer)
+      buffer
+    else
+      receive do
+        {:zorb_output, output} ->
+          new_buffer = append_output(buffer, output)
 
-        if is_integer(output) and output == ?\r do
-          check_disputes!(new_buffer)
-        end
+          if is_integer(output) and output == ?\r do
+            check_disputes!(new_buffer)
+          end
 
-        check_answers!(new_buffer, task_pid)
-
-        if matches?(new_buffer, pattern) do
-          new_buffer
-        else
+          check_answers!(new_buffer, task_pid)
           do_expect(new_buffer, pattern, timeout, task_pid)
-        end
 
-      {:zorb_halt, reason, pc, opcode} ->
-        if reason == 0 do
-          buffer
-        else
-          dump_buffer(buffer)
-          flunk("Interpreter halted with reason #{reason} at PC #{pc} (opcode #{opcode}).")
-        end
-    after
-      100 ->
-        if task_pid && not Process.alive?(task_pid) do
-          dump_buffer(buffer)
+        {:zorb_halt, reason, pc, opcode} ->
+          if reason == 0 do
+            if matches?(buffer, pattern) do
+              Process.put(:zorb_expect_buffer, buffer)
+              buffer
+            else
+              dump_buffer(buffer)
+              flunk("Interpreter halted before pattern #{inspect(pattern)} was found.")
+            end
+          else
+            dump_buffer(buffer)
+            flunk("Interpreter halted with reason #{reason} at PC #{pc} (opcode #{opcode}).")
+          end
+      after
+        100 ->
+          if task_pid && not Process.alive?(task_pid) do
+            if matches?(buffer, pattern) do
+              Process.put(:zorb_expect_buffer, buffer)
+              buffer
+            else
+              dump_buffer(buffer)
+              flunk("Task died before pattern #{inspect(pattern)} was found.")
+            end
+          end
 
-          flunk("Task died before pattern #{inspect(pattern)} was found.")
-        end
-
-        if timeout <= 100 do
-          dump_buffer(buffer)
-
-          flunk("Timed out waiting for pattern #{inspect(pattern)}.")
-        else
-          do_expect(buffer, pattern, timeout - 100, task_pid)
-        end
+          if timeout <= 100 do
+            dump_buffer(buffer)
+            flunk("Timed out waiting for pattern #{inspect(pattern)}.")
+          else
+            do_expect(buffer, pattern, timeout - 100, task_pid)
+          end
+      end
     end
   end
 

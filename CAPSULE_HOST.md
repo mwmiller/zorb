@@ -30,9 +30,6 @@ Reasons include:
 - `3`: Illegal opcode
 - `4`: Static memory violation
 
-### `tokenize(text_addr: i32, parse_addr: i32, dict_addr: i32, flag: i32)`
-Performs lexical analysis on a text buffer and writes the results to a parse buffer. This is an optional host import that can be used to offload tokenization from WASM to the host (e.g., for performance or to use a more complex tokenizer).
-
 ### `log_step(tick: i32, pc: i32, opcode: i32)`
 Optional import for instruction-level tracing. Called before each opcode execution.
 

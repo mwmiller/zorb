@@ -5,6 +5,7 @@ defmodule Zorb.CLI do
 
   def main(args) do
     # Ensure dependencies are started if running as escript
+    Application.load(:wasmex)
     Application.ensure_all_started(:wasmex)
     Application.ensure_all_started(:logger)
 

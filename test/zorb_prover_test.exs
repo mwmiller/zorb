@@ -17,7 +17,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "zil_test.z3")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect("A TEST FILE", 120_000, pid)
     expect("TESTING LAB", 120_000, pid)
@@ -42,7 +42,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "czech.z5")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     dispute("ERROR")
     dispute("bad")
@@ -73,7 +73,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "strictz.z5")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     dispute("incorrect")
 
@@ -103,7 +103,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "simple_test.z5")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect("units 0 by 0", 120_000, pid)
     answer(pid, "quit\n")
@@ -125,7 +125,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "unicode.z5")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     # When the prover asks for input, send '€'
     answer_on("Try inputing a character.", "€", task_pid: pid)
@@ -165,7 +165,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "zork1.z1")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect("ZORK: The Great Underground Empire - Part I", 120_000, pid)
     expect("West of House", 120_000, pid)
@@ -191,7 +191,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "zork1.z2")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect("ZORK: The Great Underground Empire - Part I", 120_000, pid)
     expect("West of House", 120_000, pid)
@@ -216,7 +216,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "simple_test.z7")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect("units 0 by 0", 120_000, pid)
     answer(pid, "quit\n")
@@ -239,7 +239,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "lostpig.z8")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect(~r/Lost Pig/i, 300_000, pid)
     expect(~r/Grunk think that pig probably go this way/i, 300_000, pid)

@@ -63,16 +63,21 @@ defmodule Zorb.Session do
     notify_to = Keyword.get(opts, :notify_to, self())
     timeout = Keyword.get(opts, :timeout, :infinity)
 
+    Logger.debug("Zorb Session: Resolving WASM bytes...")
     wasm_bytes = resolve_wasm_bytes(source, opts)
+    Logger.debug("Zorb Session: WASM bytes resolved (#{byte_size(wasm_bytes)} bytes)")
 
     session_pid = self()
     imports = build_all_imports(session_pid, opts)
 
+    Logger.debug("Zorb Session: Starting WASM instance...")
     case Wasmex.start_link(%{bytes: wasm_bytes, imports: imports}) do
       {:ok, instance} ->
+        Logger.debug("Zorb Session: WASM instance started, initializing...")
         initialize_instance(instance, notify_to, timeout)
 
       {:error, reason} ->
+        Logger.error("Zorb Session: Failed to start WASM instance: #{inspect(reason)}")
         {:stop, reason}
     end
   end
@@ -101,8 +106,10 @@ defmodule Zorb.Session do
   end
 
   defp initialize_instance(instance, notify_to, timeout) do
+    Logger.debug("Zorb Session: Calling WASM init...")
     case Wasmex.call_function(instance, "init", []) do
       {:ok, _} ->
+        Logger.debug("Zorb Session: WASM init successful")
         state = %State{
           instance: instance,
           input_buffer: [],
@@ -116,11 +123,15 @@ defmodule Zorb.Session do
 
         # Start the WASM loop in a separate Task
         session_pid = self()
-        task = Task.async(fn -> run_loop(instance, session_pid, timeout) end)
+        task = Task.async(fn -> 
+          Logger.debug("Zorb Session: Starting run_loop task...")
+          run_loop(instance, session_pid, timeout) 
+        end)
 
         {:ok, %{state | task: task}}
 
       {:error, reason} ->
+        Logger.error("Zorb Session: WASM init failed: #{inspect(reason)}")
         {:stop, reason}
     end
   end
@@ -180,6 +191,7 @@ defmodule Zorb.Session do
 
   @impl true
   def handle_info({:zorb_halt, reason, pc, opcode}, state) do
+    Logger.debug("Zorb Session: HALTED: reason=#{reason}, PC=0x#{Integer.to_string(pc, 16)}, Op=0x#{Integer.to_string(opcode, 16)}")
     send(state.notify_to, {:zorb_halt, reason, pc, opcode})
     {:stop, :normal, %{state | halted: true}}
   end
@@ -201,6 +213,7 @@ defmodule Zorb.Session do
             {:stop, :normal, state}
 
           _ ->
+            Logger.error("Zorb Session: Loop task died: #{inspect(reason)}")
             {:stop, reason, state}
         end
 
@@ -213,16 +226,23 @@ defmodule Zorb.Session do
 
   defp run_loop(instance, session_pid, timeout) do
     case Wasmex.call_function(instance, "run_steps", [1000], timeout) do
-      {:ok, _} ->
+      {:ok, [0]} ->
+        Logger.debug("Zorb Session: 1000 steps executed")
         run_loop(instance, session_pid, timeout)
+
+      {:ok, [1]} ->
+        Logger.debug("Zorb Session: run_steps reported halt, stopping task.")
+        :ok
 
       {:error, reason} ->
         case reason do
           "Function execution timed out" ->
+            Logger.debug("Zorb Session: run_steps timed out, resuming...")
             run_loop(instance, session_pid, timeout)
 
           _ ->
-            Logger.error("Zorb Session: Loop error: #{inspect(reason)}")
+            Logger.error("Zorb Session: WASM execution error: #{inspect(reason)}")
+            send(session_pid, {:zorb_halt, 3, 0, 0}) # Signal illegal opcode/error
             :error
         end
     end
@@ -234,6 +254,7 @@ defmodule Zorb.Session do
         "print_char" =>
           {:fn, [:i32], [],
            fn _ctx, char ->
+             Logger.debug("Zorb Session: print_char(#{char})")
              send(session_pid, {:zorb_output, char})
              nil
            end},
@@ -246,6 +267,7 @@ defmodule Zorb.Session do
         "read_char" =>
           {:fn, [], [:i32],
            fn _ctx ->
+             Logger.debug("Zorb Session: read_char() called")
              GenServer.call(session_pid, :get_input, :infinity)
            end},
         "get_random" =>
@@ -264,12 +286,20 @@ defmodule Zorb.Session do
              send(session_pid, {:zorb_halt, reason, pc, opcode})
              nil
            end},
-        "tokenize" =>
-          {:fn, [:i32, :i32, :i32, :i32], [],
-           fn ctx, t, p, d, f ->
-             Zorb.Tokeniser.tokenize(ctx, t, p, d, f)
+        "log_zchar" =>
+          {:fn, [:i32, :i32, :i32], [],
+           fn _ctx, alph, zchar, zscii ->
+             Logger.debug("Zorb Session: decode_zchar: alph=#{alph}, zchar=#{zchar}, zscii=#{zscii} ('#{[zscii]}')")
+             nil
            end},
-        "log_step" => {:fn, [:i32, :i32, :i32], [], fn _ctx, _tick, _pc, _opcode -> nil end},
+        "log_step" =>
+          {:fn, [:i32, :i32, :i32], [],
+           fn _ctx, tick, pc, opcode ->
+             if tick <= 5 or rem(tick, 1000) == 0 do
+               Logger.debug("Zorb Session: Step #{tick}: PC=0x#{Integer.to_string(pc, 16)} Op=0x#{Integer.to_string(opcode, 16)}")
+             end
+             nil
+           end},
         "set_window" =>
           {:fn, [:i32], [],
            fn _ctx, window_id ->

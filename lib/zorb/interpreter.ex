@@ -685,11 +685,13 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x02) do
+      # print
       print_zstring(0)
       return()
     end
 
     if I32.eq(opc, 0x03) do
+      # print_ret
       print_zstring(0)
       print_char_wasm(13)
       do_return(1)
@@ -803,9 +805,7 @@ defmodule Zorb.Interpreter do
       val = read_input(o1)
 
       if I32.ne(o2, 0) do
-        # do_tokenise(o1, o2, 0)
-        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-        Zorb.Capsule.Host.tokenize(o1, o2, 0, 0)
+        do_tokenise(o1, o2, 0)
       end
 
       if I32.ge_u(@version, 5) do
@@ -1497,7 +1497,7 @@ defmodule Zorb.Interpreter do
     end
   end
 
-  defw decode_zchar(zchar: T.ZChar), alph: I32, table_addr: I32, old_pc: T.Address do
+  defw decode_zchar(zchar: T.ZChar), alph: I32, table_addr: I32, old_pc: T.Address, b: I32 do
     if(I32.eq(@zscii_state, 1),
       do:
         (
@@ -1632,18 +1632,14 @@ defmodule Zorb.Interpreter do
 
     # Optimized lookup using baked data segments
     if I32.ge_u(zchar, 6) do
-      # A0 is at 0x81000, A1 at 0x8101A, A2 (V1) at 0x81034, A2 (V2) at 0x8104E, A2 (V3+) at 0x81068
+      # A0 is at 0x81000, A1 at 0x8101A (0x81000 + 26), A2 at 0x81034 (0x81000 + 52)
       table_addr = I32.add(0x81000, I32.mul(alph, 26))
 
-      # Switch to the correct A2 table based on version
-      if I32.eq(alph, 2) do
-        if I32.ne(@version, 1) do
-          table_addr = 0x8104E
-        end
-      end
-
       # All alphabets use zchars 6-31 (offset by 6)
-      print_char_wasm(zscii_to_unicode(read_byte(I32.add(table_addr, I32.sub(zchar, 6)))))
+      b = read_byte(I32.add(table_addr, I32.sub(zchar, 6)))
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+      Zorb.Capsule.Host.log_zchar(alph, zchar, b)
+      print_char_wasm(zscii_to_unicode(b))
 
       @next_alphabet = -1
 
@@ -1660,6 +1656,13 @@ defmodule Zorb.Interpreter do
     @current_alphabet = 0
     @abbrev_mode = 0
 
+    @recursion_depth = I32.add(@recursion_depth, I32.const(1))
+
+    if I32.gt_u(@recursion_depth, I32.const(2)) do
+      @recursion_depth = I32.sub(@recursion_depth, I32.const(1))
+      return()
+    end
+
     if I32.ne(addr, 0) do
       loop ALoop do
         word = read_word(addr)
@@ -1673,19 +1676,9 @@ defmodule Zorb.Interpreter do
 
       @next_alphabet = s_sh
       @current_alphabet = s_curr
+      @recursion_depth = I32.sub(@recursion_depth, I32.const(1))
       return()
     end
-
-    @recursion_depth = I32.add(@recursion_depth, I32.const(1))
-
-    if(I32.gt_u(@recursion_depth, I32.const(2)),
-      do:
-        (
-          @next_alphabet = s_sh
-          @recursion_depth = I32.sub(@recursion_depth, I32.const(1))
-          return()
-        )
-    )
 
     loop DLoop do
       word = fetch_word()
@@ -1987,9 +1980,10 @@ defmodule Zorb.Interpreter do
   end
 
   defw do_tokenise(t: T.Address, p: T.Address, d: T.Address) do
-    if I32.eq(d, 0), do: d = @dictionary_base
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    Zorb.Capsule.Host.tokenize(t, p, d, 0)
+    # Replaced by Assembler with bespoke version
+    drop_i32(t)
+    drop_i32(p)
+    drop_i32(d)
   end
 
   defw do_get_sibling(obj: T.Object), sib: T.Object do
@@ -2123,6 +2117,8 @@ defmodule Zorb.Interpreter do
     o8: I32,
     m: I32 do
     @tick = I32.add(@tick, 1)
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+    Zorb.Capsule.Host.log_step(@tick, @pc, read_byte(@pc))
     b = fetch_byte()
 
     if I32.eq(I32.band(b, 0xC0), 0xC0) do
@@ -2247,7 +2243,7 @@ defmodule Zorb.Interpreter do
     execute_2op(opc, o1, o2)
   end
 
-  defw run_steps(max: I32) do
+  defw run_steps(max: I32), I32 do
     Control.block StepLoopBlock do
       loop StepLoop do
         if I32.or(I32.lt_u(max, I32.const(1)), @halted) do
@@ -2259,6 +2255,8 @@ defmodule Zorb.Interpreter do
         StepLoop.continue()
       end
     end
+
+    @halted
   end
 
   defw load_story(ptr: T.Address, len: I32), i: I32 do
