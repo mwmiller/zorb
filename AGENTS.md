@@ -1,11 +1,12 @@
 # Agent Guidelines - Zorb Project
 
 ## Development Baseline
-- **Known Good Baseline**: Commit `cd3c1b7eaa3cc07e1271c1992cfe44538a76dda7` is the verified baseline for V1-V8 support (excluding V6). This commit is considered inviolable. All regressions must be checked against this state.
+- **Gold Standard Baseline**: Commit `9d1104c6282cac6757875ab9af94f18ea43123ef` is the verified "Gold Standard" for V1-V8 support (excluding V6). This commit is considered inviolable and includes the Sidecar Payload optimization for large story compilation. All regressions must be checked against this state.
 
-## Current Status (February 10, 2026)
-- **V1-V8 Support**: Full compliance (excluding V6) achieved and verified via provers.
-- **Resource Constraints**: Running in a harsh environment; integration test timeouts are set to 300s/120s.
+## Current Status (February 12, 2026)
+- **V1-V8 Support**: Full compliance (excluding V6) achieved and verified via provers and integration tests (including Lost Pig V8).
+- **Sidecar Payload**: Large stories are serialized to binary files at compile-time to prevent Elixir compiler hangs.
+- **Silent Tests**: Logger levels are suppressed during tests to focus on failures.
 - **Baking Factory**: Sourceror-based pipeline produces bespoke WASM capsules.
 - **Tokenizer**: Handled entirely within the WASM capsule with O(1) dictionary lookups.
 
