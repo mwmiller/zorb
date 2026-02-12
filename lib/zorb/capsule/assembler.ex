@@ -2,9 +2,7 @@ defmodule Zorb.Capsule.Assembler do
   # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
   # credo:disable-for-this-file Credo.Check.Refactor.Nesting
   # credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
-  @moduledoc """
-  Bakes bespoke story capsules by programmatically assembling and pruning the Orb AST using Sourceror.
-  """
+  @moduledoc false
   require Logger
 
   @interpreter_source_path Path.expand("../interpreter.ex", __DIR__)

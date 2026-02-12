@@ -1,7 +1,7 @@
 defmodule Zorb.CLI do
-  @moduledoc """
-  Command-line interface for Zorb.
-  """
+  @moduledoc false
+
+  @version Mix.Project.config()[:version]
 
   def main(args) do
     # Ensure dependencies are started if running as escript
@@ -9,25 +9,56 @@ defmodule Zorb.CLI do
     Application.ensure_all_started(:wasmex)
     Application.ensure_all_started(:logger)
 
-    case args do
-      [path] ->
+    {opts, args, _invalid} =
+      OptionParser.parse(args,
+        switches: [help: :boolean, version: :boolean, cache: :boolean],
+        aliases: [h: :help, v: :version, c: :cache]
+      )
+
+    cond do
+      opts[:help] ->
+        print_help()
+
+      opts[:version] ->
+        IO.puts("Zorb v#{@version}")
+
+      args == [] ->
+        print_help()
+
+      true ->
+        [path | _] = args
+
         if File.exists?(path) do
-          run(path)
+          run(path, opts)
         else
           IO.puts("Error: File not found: #{path}")
           System.halt(1)
         end
-
-      _ ->
-        IO.puts("Usage: zorb path/to/story.z[1-8]")
-        System.halt(1)
     end
   end
 
-  def run(path) do
+  defp print_help do
+    IO.puts("""
+    Zorb v#{@version} - High-performance Z-machine Game Capsules
+
+    Usage:
+      zorb path/to/story.z[1-8] [options]
+
+    Options:
+      -h, --help     Show this help
+      -v, --version  Show version
+      -c, --cache    Enable compilation cache (recommended)
+
+    Example:
+      zorb zork1.z3 --cache
+    """)
+  end
+
+  def run(path, opts \\ []) do
     parent = self()
-    # We use cache: true by default for CLI usage to speed up subsequent runs
-    {:ok, session_pid} = Zorb.Session.start_link(path, notify_to: parent, cache: true)
+    # We use cache: true by default for CLI usage if requested
+    {:ok, session_pid} =
+      Zorb.Session.start_link(path, notify_to: parent, cache: Keyword.get(opts, :cache, false))
 
     # Bridge stdin to the session
     spawn_link(fn -> bridge_stdin(session_pid) end)

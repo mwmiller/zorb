@@ -58,23 +58,19 @@ defmodule Zorb.Session do
 
   # --- GenServer Callbacks ---
 
+  @doc false
   @impl true
   def init({source, opts}) do
     notify_to = Keyword.get(opts, :notify_to, self())
     timeout = Keyword.get(opts, :timeout, :infinity)
 
-    Logger.debug("Zorb Session: Resolving WASM bytes...")
     wasm_bytes = resolve_wasm_bytes(source, opts)
-    Logger.debug("Zorb Session: WASM bytes resolved (#{byte_size(wasm_bytes)} bytes)")
 
     session_pid = self()
     imports = build_all_imports(session_pid, opts)
 
-    Logger.debug("Zorb Session: Starting WASM instance...")
-
     case Wasmex.start_link(%{bytes: wasm_bytes, imports: imports}) do
       {:ok, instance} ->
-        Logger.debug("Zorb Session: WASM instance started, initializing...")
         initialize_instance(instance, notify_to, timeout)
 
       {:error, reason} ->
@@ -107,12 +103,8 @@ defmodule Zorb.Session do
   end
 
   defp initialize_instance(instance, notify_to, timeout) do
-    Logger.debug("Zorb Session: Calling WASM init...")
-
     case Wasmex.call_function(instance, "init", []) do
       {:ok, _} ->
-        Logger.debug("Zorb Session: WASM init successful")
-
         state = %State{
           instance: instance,
           input_buffer: [],
@@ -129,7 +121,6 @@ defmodule Zorb.Session do
 
         task =
           Task.async(fn ->
-            Logger.debug("Zorb Session: Starting run_loop task...")
             run_loop(instance, session_pid, timeout)
           end)
 
@@ -141,6 +132,7 @@ defmodule Zorb.Session do
     end
   end
 
+  @doc false
   @impl true
   def handle_call(:get_input, from, state) do
     # Ergonomics: Add space after prompt
@@ -158,11 +150,13 @@ defmodule Zorb.Session do
     end
   end
 
+  @doc false
   @impl true
   def handle_cast({:set_window, window_id}, state) do
     {:noreply, %{state | current_window: window_id}}
   end
 
+  @doc false
   @impl true
   def handle_info({:zorb_input, char}, state) do
     zscii =
@@ -181,6 +175,7 @@ defmodule Zorb.Session do
     end
   end
 
+  @doc false
   @impl true
   def handle_info({:zorb_output, output}, state) do
     send(state.notify_to, {:zorb_output, output})
@@ -194,16 +189,14 @@ defmodule Zorb.Session do
     {:noreply, new_state}
   end
 
+  @doc false
   @impl true
   def handle_info({:zorb_halt, reason, pc, opcode}, state) do
-    Logger.debug(
-      "Zorb Session: HALTED: reason=#{reason}, PC=0x#{Integer.to_string(pc, 16)}, Op=0x#{Integer.to_string(opcode, 16)}"
-    )
-
     send(state.notify_to, {:zorb_halt, reason, pc, opcode})
     {:stop, :normal, %{state | halted: true}}
   end
 
+  @doc false
   @impl true
   def handle_info({ref, :ok}, state) do
     case state.task do
@@ -212,6 +205,7 @@ defmodule Zorb.Session do
     end
   end
 
+  @doc false
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case state.task do
@@ -230,6 +224,7 @@ defmodule Zorb.Session do
     end
   end
 
+  @doc false
   @impl true
   def terminate(_reason, state) do
     if state.task do

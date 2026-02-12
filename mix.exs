@@ -10,7 +10,23 @@ defmodule Zorb.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       aliases: aliases(),
-      escript: [main_module: Zorb.CLI]
+      escript: [main_module: Zorb.CLI],
+      description: description(),
+      package: package(),
+      name: "Zorb",
+      source_url: "https://github.com/mwmiller/zorb"
+    ]
+  end
+
+  defp description do
+    "A high-performance Z-machine implementation that compiles stories into standalone WebAssembly capsules."
+  end
+
+  defp package do
+    [
+      maintainers: ["Matthew Miller"],
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/mwmiller/zorb"}
     ]
   end
 

@@ -6,12 +6,16 @@ defmodule Zorb.Capsule do
 
   @compiler_version Mix.Project.config()[:version]
 
+  @doc """
+  Returns the compiler version of the Zorb Baking Factory.
+  """
   def compiler_version, do: @compiler_version
 
   @doc """
   Compiles a story file into a WASM capsule.
-  Options:
-  - `:cache`: Boolean, whether to cache the result. Defaults to `false`.
+
+  ## Options
+    * `:cache` - Boolean, whether to cache the result. Defaults to `false`.
   """
   def compile(story_path, opts \\ []) when is_binary(story_path) do
     story_data = File.read!(story_path)
@@ -22,18 +26,13 @@ defmodule Zorb.Capsule do
           wasm
 
         :error ->
-          wasm = compile_data(story_data, opts)
+          wasm = perform_compile(story_data, "Bespoke")
           save_to_cache(story_data, wasm)
           wasm
       end
     else
-      compile_data(story_data, opts)
+      perform_compile(story_data, "Bespoke")
     end
-  end
-
-  def compile_data(story_data, opts \\ []) when is_binary(story_data) and is_list(opts) do
-    name_hint = Keyword.get(opts, :name_hint, "Bespoke")
-    perform_compile(story_data, name_hint)
   end
 
   defp perform_compile(story_data, base_name) do
