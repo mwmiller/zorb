@@ -33,16 +33,84 @@ defmodule Zorb.Capsule.Assembler do
 
     # V1 A2: Spec 3.5.4
     a2_v1 = [
-      ?\s, ?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?., ?,, ?!, ??, ?_, ?#, ?', ?\", ?/, ?\\, ?<, ?-, ?:, ?(, ?)
+      ?\s,
+      ?0,
+      ?1,
+      ?2,
+      ?3,
+      ?4,
+      ?5,
+      ?6,
+      ?7,
+      ?8,
+      ?9,
+      ?.,
+      ?,,
+      ?!,
+      ??,
+      ?_,
+      ?#,
+      ?',
+      ?\",
+      ?/,
+      ?\\,
+      ?<,
+      ?-,
+      ?:,
+      ?(,
+      ?)
     ]
 
     # V2+ A2: Spec 3.5.3
     a2_v2 = [
-      0, 13, ?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?., ?,, ?!, ??, ?_, ?#, ?', ?\", ?/, ?\\, ?-, ?:, ?(, ?)
+      0,
+      13,
+      ?0,
+      ?1,
+      ?2,
+      ?3,
+      ?4,
+      ?5,
+      ?6,
+      ?7,
+      ?8,
+      ?9,
+      ?.,
+      ?,,
+      ?!,
+      ??,
+      ?_,
+      ?#,
+      ?',
+      ?\",
+      ?/,
+      ?\\,
+      ?-,
+      ?:,
+      ?(,
+      ?)
     ]
 
     alphabets = a0 ++ a1 ++ a2_v1 ++ a2_v2
     if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
+
+    # Chunk the story data to avoid massive literals in the AST
+    chunk_size = 4096
+    story_chunks = for offset <- 0..(byte_size(pruned_story) - 1) |> Enum.take_every(chunk_size) do
+      len = min(chunk_size, byte_size(pruned_story) - offset)
+      {offset, :binary.bin_to_list(binary_part(pruned_story, offset, len))}
+    end
+
+    # Create a payload of baked data to be loaded during module compilation
+    payload = %{
+      story_chunks: story_chunks,
+      unicode: :binary.bin_to_list(unicode),
+      hash: :binary.bin_to_list(hash_table)
+    }
+
+    payload_path = Path.expand("tmp/payload_#{version}_#{:erlang.unique_integer([:positive])}.bin")
+    File.mkdir_p!("tmp")
+    File.write!(payload_path, :erlang.term_to_binary(payload))
 
     # 3. Create Replacement ASTs
     host_registration_ast = quote(do: Orb.Import.register(Zorb.Capsule.Host))
@@ -89,22 +157,19 @@ defmodule Zorb.Capsule.Assembler do
         end
       end
 
-    memory_setup_ast =
-      [
-        quote(do: Orb.Memory.pages(16))
-        | chunk_initial_data(0, pruned_story) ++
-            [
-              quote(
-                do: Orb.Memory.initial_data!(0x80000, u8: unquote(:binary.bin_to_list(unicode)))
-              ),
-              quote(do: Orb.Memory.initial_data!(0x81000, u8: unquote(alphabets))),
-              quote(
-                do:
-                  Orb.Memory.initial_data!(0x82000, u8: unquote(:binary.bin_to_list(hash_table)))
-              )
-            ]
-      ]
-      |> List.flatten()
+    memory_setup_ast = [
+      quote(do: Orb.Memory.pages(16)),
+      quote do
+        @payload File.read!(unquote(payload_path)) |> :erlang.binary_to_term()
+        # Load story chunks
+        for {off, list} <- @payload.story_chunks do
+          Orb.Memory.initial_data!(off, u8: list)
+        end
+        Orb.Memory.initial_data!(0x80000, u8: @payload.unicode)
+        Orb.Memory.initial_data!(0x81000, u8: unquote(alphabets))
+        Orb.Memory.initial_data!(0x82000, u8: @payload.hash)
+      end
+    ]
 
     ldict_definition_ast =
       quote do
@@ -115,7 +180,7 @@ defmodule Zorb.Capsule.Assembler do
             addr = I32.add(0x82000, I32.shl(slot, 4))
 
             if I32.eq(Memory.load!(I32, I32.add(addr, 12)), 0) do
-              return(0)
+              return(I32.const(0))
             end
 
             if mdict(addr, w1, w2, w3) do
@@ -126,7 +191,7 @@ defmodule Zorb.Capsule.Assembler do
             Search.continue()
           end
 
-          return(0)
+          return(I32.const(0))
         end
       end
 
@@ -136,14 +201,14 @@ defmodule Zorb.Capsule.Assembler do
           combined1 = I32.or(I32.shl(w1, 16), w2)
 
           if I32.ne(Memory.load!(I32, addr), combined1) do
-            return(0)
+            return(I32.const(0))
           end
 
           if I32.ne(Memory.load!(I32, I32.add(addr, 4)), w3) do
-            return(0)
+            return(I32.const(0))
           end
 
-          return(1)
+          return(I32.const(1))
         end
       end
 
@@ -293,7 +358,10 @@ defmodule Zorb.Capsule.Assembler do
                           found = 1
                         end
 
-                        if I32.band(I32.eq(found, 0), I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))) do
+                        if I32.band(
+                             I32.eq(found, 0),
+                             I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))
+                           ) do
                           zchar = I32.add(I32.sub(char, 97), 6)
 
                           if I32.lt_u(
@@ -323,11 +391,17 @@ defmodule Zorb.Capsule.Assembler do
                               if I32.lt_u(k, 26) do
                                 if I32.eq(read_byte(I32.add(0x8101A, k)), char) do
                                   zchar =
-                                    if(I32.le_u(@version, 2), do: I32.const(2), else: I32.const(4))
+                                    if(I32.le_u(@version, 2),
+                                      do: I32.const(2),
+                                      else: I32.const(4)
+                                    )
 
                                   if I32.lt_u(
                                        zchars_len,
-                                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                                       if(I32.le_u(@version, 3),
+                                         do: I32.const(6),
+                                         else: I32.const(9)
+                                       )
                                      ) do
                                     if I32.eq(zchars_len, 0), do: z0 = zchar
                                     if I32.eq(zchars_len, 1), do: z1 = zchar
@@ -345,7 +419,10 @@ defmodule Zorb.Capsule.Assembler do
 
                                   if I32.lt_u(
                                        zchars_len,
-                                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                                       if(I32.le_u(@version, 3),
+                                         do: I32.const(6),
+                                         else: I32.const(9)
+                                       )
                                      ) do
                                     if I32.eq(zchars_len, 0), do: z0 = zchar
                                     if I32.eq(zchars_len, 1), do: z1 = zchar
@@ -372,6 +449,7 @@ defmodule Zorb.Capsule.Assembler do
 
                         if I32.eq(found, 0) do
                           alph_addr = 0x81034
+
                           if I32.ne(@version, 1) do
                             alph_addr = 0x8104E
                           end
@@ -558,6 +636,7 @@ defmodule Zorb.Capsule.Assembler do
                     k = 0
                     z1 = 5
                     alph_addr = 0x81034
+
                     if I32.ne(@version, 1) do
                       alph_addr = 0x8104E
                     end
@@ -637,7 +716,10 @@ defmodule Zorb.Capsule.Assembler do
               loop EncodeLoop2 do
                 if I32.band(
                      I32.lt_u(j, word_len),
-                     I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9)))
+                     I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     )
                    ) do
                   char = read_byte(I32.add(text_start, I32.add(word_start, j)))
 
@@ -648,7 +730,10 @@ defmodule Zorb.Capsule.Assembler do
                   found = 0
 
                   if I32.eq(char, 32) do
-                    if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                    if I32.lt_u(
+                         zchars_len,
+                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                       ) do
                       zchar = 0
                       if I32.eq(zchars_len, 0), do: z0 = zchar
                       if I32.eq(zchars_len, 1), do: z1 = zchar
@@ -667,7 +752,11 @@ defmodule Zorb.Capsule.Assembler do
 
                   if I32.band(I32.eq(found, 0), I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))) do
                     zchar = I32.add(I32.sub(char, 97), 6)
-                    if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+
+                    if I32.lt_u(
+                         zchars_len,
+                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                       ) do
                       if I32.eq(zchars_len, 0), do: z0 = zchar
                       if I32.eq(zchars_len, 1), do: z1 = zchar
                       if I32.eq(zchars_len, 2), do: z2 = zchar
@@ -690,9 +779,13 @@ defmodule Zorb.Capsule.Assembler do
                       loop A1Loop2 do
                         if I32.lt_u(k, 26) do
                           if I32.eq(read_byte(I32.add(0x8101A, k)), char) do
-                            zchar = if(I32.le_u(@version, 2), do: I32.const(2), else: I32.const(4))
+                            zchar =
+                              if(I32.le_u(@version, 2), do: I32.const(2), else: I32.const(4))
 
-                            if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                            if I32.lt_u(
+                                 zchars_len,
+                                 if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                               ) do
                               if I32.eq(zchars_len, 0), do: z0 = zchar
                               if I32.eq(zchars_len, 1), do: z1 = zchar
                               if I32.eq(zchars_len, 2), do: z2 = zchar
@@ -707,7 +800,10 @@ defmodule Zorb.Capsule.Assembler do
 
                             zchar = I32.add(k, 6)
 
-                            if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                            if I32.lt_u(
+                                 zchars_len,
+                                 if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                               ) do
                               if I32.eq(zchars_len, 0), do: z0 = zchar
                               if I32.eq(zchars_len, 1), do: z1 = zchar
                               if I32.eq(zchars_len, 2), do: z2 = zchar
@@ -733,6 +829,7 @@ defmodule Zorb.Capsule.Assembler do
 
                   if I32.eq(found, 0) do
                     alph_addr = 0x81034
+
                     if I32.ne(@version, 1) do
                       alph_addr = 0x8104E
                     end
@@ -744,9 +841,13 @@ defmodule Zorb.Capsule.Assembler do
                         if I32.lt_u(k, 26) do
                           if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
                             if I32.ne(k, 0) do
-                              zchar = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
+                              zchar =
+                                if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
 
-                              if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                              if I32.lt_u(
+                                   zchars_len,
+                                   if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                                 ) do
                                 if I32.eq(zchars_len, 0), do: z0 = zchar
                                 if I32.eq(zchars_len, 1), do: z1 = zchar
                                 if I32.eq(zchars_len, 2), do: z2 = zchar
@@ -761,7 +862,10 @@ defmodule Zorb.Capsule.Assembler do
 
                               zchar = I32.add(k, 6)
 
-                              if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                              if I32.lt_u(
+                                   zchars_len,
+                                   if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                                 ) do
                                 if I32.eq(zchars_len, 0), do: z0 = zchar
                                 if I32.eq(zchars_len, 1), do: z1 = zchar
                                 if I32.eq(zchars_len, 2), do: z2 = zchar
@@ -789,7 +893,10 @@ defmodule Zorb.Capsule.Assembler do
                   if I32.eq(found, 0) do
                     zchar = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
 
-                    if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                    if I32.lt_u(
+                         zchars_len,
+                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                       ) do
                       if I32.eq(zchars_len, 0), do: z0 = zchar
                       if I32.eq(zchars_len, 1), do: z1 = zchar
                       if I32.eq(zchars_len, 2), do: z2 = zchar
@@ -802,7 +909,10 @@ defmodule Zorb.Capsule.Assembler do
                       zchars_len = I32.add(zchars_len, 1)
                     end
 
-                    if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                    if I32.lt_u(
+                         zchars_len,
+                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                       ) do
                       if I32.eq(zchars_len, 0), do: z0 = 6
                       if I32.eq(zchars_len, 1), do: z1 = 6
                       if I32.eq(zchars_len, 2), do: z2 = 6
@@ -815,7 +925,10 @@ defmodule Zorb.Capsule.Assembler do
                       zchars_len = I32.add(zchars_len, 1)
                     end
 
-                    if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                    if I32.lt_u(
+                         zchars_len,
+                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                       ) do
                       zchar = I32.band(I32.shr_u(char, 5), 0x1F)
                       if I32.eq(zchars_len, 0), do: z0 = zchar
                       if I32.eq(zchars_len, 1), do: z1 = zchar
@@ -829,7 +942,10 @@ defmodule Zorb.Capsule.Assembler do
                       zchars_len = I32.add(zchars_len, 1)
                     end
 
-                    if I32.lt_u(zchars_len, if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))) do
+                    if I32.lt_u(
+                         zchars_len,
+                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                       ) do
                       zchar = I32.band(char, 0x1F)
                       if I32.eq(zchars_len, 0), do: z0 = zchar
                       if I32.eq(zchars_len, 1), do: z1 = zchar
@@ -905,45 +1021,64 @@ defmodule Zorb.Capsule.Assembler do
         {:defmodule, meta, children} = node ->
           if is_list(children) do
             [_old_name, args_list | _] = children
-            body = case args_list do
-              [{{:__block__, _, [:do]}, b}] -> b
-              _ -> Keyword.get(args_list, :do)
-            end
+
+            body =
+              case args_list do
+                [{{:__block__, _, [:do]}, b}] -> b
+                _ -> Keyword.get(args_list, :do)
+              end
 
             if is_nil(body) do
               node
             else
-              alias_node = {:__aliases__, [alias: false], Module.split(module_name) |> Enum.map(&String.to_atom/1)}
-              list_children = case body do
-                {:__block__, _, list} -> list
-                item -> [item]
-              end
+              alias_node =
+                {:__aliases__, [alias: false],
+                 Module.split(module_name) |> Enum.map(&String.to_atom/1)}
 
-              processed_children = list_children
+              list_children =
+                case body do
+                  {:__block__, _, list} -> list
+                  item -> [item]
+                end
+
+              processed_children =
+                list_children
                 |> Enum.reject(fn
                   {{:., _, [target, func]}, _, _} when func in [:pages, :initial_data!] ->
                     target_str = Macro.to_string(target)
                     target_str == "Memory" or target_str == "Orb.Memory"
-                  _ -> false
+
+                  _ ->
+                    false
                 end)
                 |> Enum.map(fn
-                  {:global, _, _} -> global_block_ast
+                  {:global, _, _} ->
+                    global_block_ast
+
                   {:defw, _, [name_node | _]} = node ->
-                    name = case name_node do
-                      {name, _, _} when is_atom(name) -> name
-                      name when is_atom(name) -> name
-                      _ -> nil
-                    end
+                    name =
+                      case name_node do
+                        {name, _, _} when is_atom(name) -> name
+                        name when is_atom(name) -> name
+                        _ -> nil
+                      end
+
                     case name do
                       :ldict -> ldict_definition_ast
                       :mdict -> mdict_definition_ast
                       :do_tokenise -> do_tokenise_definition_ast
                       _ -> node
                     end
-                  node -> node
+
+                  node ->
+                    node
                 end)
 
-              final_children = inject_after_use_orb(processed_children, {:__block__, [], [host_registration_ast | memory_setup_ast]})
+              final_children =
+                inject_after_use_orb(
+                  processed_children,
+                  {:__block__, [], [host_registration_ast | memory_setup_ast]}
+                )
                 |> Enum.reject(&is_nil/1)
 
               {:defmodule, meta, [alias_node, [do: {:__block__, [], final_children}]]}
@@ -951,7 +1086,9 @@ defmodule Zorb.Capsule.Assembler do
           else
             node
           end
-        node -> node
+
+        node ->
+          node
       end)
 
     source_code = Sourceror.to_string(final_ast)
@@ -969,7 +1106,10 @@ defmodule Zorb.Capsule.Assembler do
 
   defp chunk_initial_data(base_offset, bin) do
     chunk_size = 512
-    bin |> byte_size() |> then(fn size ->
+
+    bin
+    |> byte_size()
+    |> then(fn size ->
       if size == 0 do
         []
       else
@@ -986,57 +1126,80 @@ defmodule Zorb.Capsule.Assembler do
   def prune_version_branches(ast, version) do
     Macro.prewalk(ast, fn
       {:defw, meta, args} ->
-        new_args = Enum.map(args, fn
-          [do: body] -> [do: prune_version_branches_in_block(body, version)]
-          other -> other
-        end)
+        new_args =
+          Enum.map(args, fn
+            [do: body] -> [do: prune_version_branches_in_block(body, version)]
+            other -> other
+          end)
+
         {:defw, meta, new_args}
-      {:if, _, _} = node -> prune_version_branches_in_block(node, version)
-      node -> node
+
+      {:if, _, _} = node ->
+        prune_version_branches_in_block(node, version)
+
+      node ->
+        node
     end)
   end
 
   defp prune_version_branches_in_block(nil, _version), do: quote(do: Orb.DSL.nop())
+
   defp prune_version_branches_in_block(body, version) do
     Macro.prewalk(body, fn
-      nil -> quote(do: Orb.DSL.nop())
+      nil ->
+        quote(do: Orb.DSL.nop())
+
       {:if, meta, [condition, blocks]} ->
         case condition do
           {{:., _, [target, op]}, _, [{:@, _, [{v_name, _, _}]}, v]}
           when op in [:ge_u, :le_u, :lt_u, :gt_u, :eq, :ne] and v_name == :version ->
             target_str = Macro.to_string(target)
+
             if target_str in ["I32", "Orb.I32"] do
               yes = blocks[:do] || quote(do: Orb.DSL.nop())
               no = blocks[:else] || quote(do: Orb.DSL.nop())
-              take_yes = case op do
-                :ge_u -> version >= v
-                :le_u -> version <= v
-                :lt_u -> version < v
-                :gt_u -> version > v
-                :eq -> version == v
-                :ne -> version != v
-              end
+
+              take_yes =
+                case op do
+                  :ge_u -> version >= v
+                  :le_u -> version <= v
+                  :lt_u -> version < v
+                  :gt_u -> version > v
+                  :eq -> version == v
+                  :ne -> version != v
+                end
+
               if take_yes, do: yes, else: no
             else
               {:if, meta, [condition, blocks]}
             end
-          _ -> {:if, meta, [condition, blocks]}
+
+          _ ->
+            {:if, meta, [condition, blocks]}
         end
-      node -> node
+
+      node ->
+        node
     end)
   end
 
   defp inject_after_use_orb(children, new_setup) do
-    index = Enum.find_index(children, fn
-      {:use, _, [{:__aliases__, _, [:Orb]}]} -> true
-      _ -> false
-    end)
-    setup_children = case new_setup do
-      {:__block__, _, list} -> list
-      item -> [item]
-    end
+    index =
+      Enum.find_index(children, fn
+        {:use, _, [{:__aliases__, _, [:Orb]}]} -> true
+        _ -> false
+      end)
+
+    setup_children =
+      case new_setup do
+        {:__block__, _, list} -> list
+        item -> [item]
+      end
+
     case index do
-      nil -> setup_children ++ children
+      nil ->
+        setup_children ++ children
+
       i ->
         {head, tail} = Enum.split(children, i + 1)
         head ++ setup_children ++ tail
@@ -1047,6 +1210,7 @@ defmodule Zorb.Capsule.Assembler do
     <<_v::8, _f1::8, _rel::16, _hmb::16, _pc::16, dictionary_base::16, object_table_base::16,
       globals_base::16, static_memory_base::16, _f2::16, _serial::binary-size(6),
       abbreviations_base::16, _rest::binary>> = story_data
+
     {globals_base, static_memory_base, dictionary_base, abbreviations_base, object_table_base}
   end
 
@@ -1056,7 +1220,11 @@ defmodule Zorb.Capsule.Assembler do
 
   def calculate_offsets(version, story_data) do
     if version in 6..7,
-      do: (<<_::320, r::16, s::16, _::binary>> = story_data; {r * 8, s * 8}),
+      do:
+        (
+          <<_::320, r::16, s::16, _::binary>> = story_data
+          {r * 8, s * 8}
+        ),
       else: {0, 0}
   end
 
@@ -1070,21 +1238,26 @@ defmodule Zorb.Capsule.Assembler do
     table_size = 2048
     mask = table_size - 1
     table = Tuple.duplicate({0, 0, 0, 0}, table_size)
-    final_table = if num_entries > 0 do
-      Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
-        addr = entries_start + i * entry_len
-        {w1, w2, w3} = get_encoded_words(story_data, addr, version)
-        hash = Bitwise.bxor(w1, Bitwise.bxor(w2, w3)) |> Bitwise.band(mask)
-        insert_at_slot(acc, hash, w1, w2, w3, addr, mask)
-      end)
-    else
-      table
-    end
-    bin = for i <- 0..(table_size - 1), into: <<>> do
-      {w1, w2, w3, addr} = elem(final_table, i)
-      combined1 = Bitwise.bor(Bitwise.bsl(w1, 16), w2)
-      <<combined1::32-little, w3::32-little, 0::32-little, addr::32-little>>
-    end
+
+    final_table =
+      if num_entries > 0 do
+        Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
+          addr = entries_start + i * entry_len
+          {w1, w2, w3} = get_encoded_words(story_data, addr, version)
+          hash = Bitwise.bxor(w1, Bitwise.bxor(w2, w3)) |> Bitwise.band(mask)
+          insert_at_slot(acc, hash, w1, w2, w3, addr, mask)
+        end)
+      else
+        table
+      end
+
+    bin =
+      for i <- 0..(table_size - 1), into: <<>> do
+        {w1, w2, w3, addr} = elem(final_table, i)
+        combined1 = Bitwise.bor(Bitwise.bsl(w1, 16), w2)
+        <<combined1::32-little, w3::32-little, 0::32-little, addr::32-little>>
+      end
+
     {bin, mask}
   end
 
@@ -1106,7 +1279,150 @@ defmodule Zorb.Capsule.Assembler do
   end
 
   def generate_unicode_binary do
-    table = [0x00E4, 0x00F6, 0x00FC, 0x00C4, 0x00D6, 0x00DC, 0x00DF, 0x00BB, 0x00AB, 0x00EB, 0x00EF, 0x00FF, 0x00CB, 0x00CF, 0x00E1, 0x00E9, 0x00ED, 0x00F3, 0x00FA, 0x00FD, 0x00C1, 0x00C9, 0x00CD, 0x00D3, 0x00DA, 0x00DD, 0x00E0, 0x00E8, 0x00EC, 0x00F2, 0x00F9, 0x00C0, 0x00C8, 0x00CC, 0x00D2, 0x00D9, 0x00E2, 0x00EA, 0x00EE, 0x00F4, 0x00FB, 0x00C2, 0x00CA, 0x00CE, 0x00D4, 0x00DB, 0x00E5, 0x00C5, 0x00F8, 0x00D8, 0x00E3, 0x00F1, 0x00F5, 0x00C3, 0x00D1, 0x00D5, 0x00E6, 0x00C6, 0x00E7, 0x00C7, 0x00FE, 0x00F0, 0x00DE, 0x00D0, 0x00A3, 0x0153, 0x0152, 0x00A1, 0x00BF, 0x00AA, 0x00BA, 0x00E6, 0x00C6, 0x00F8, 0x00D8, 0x00E5, 0x00C5, 0x00E7, 0x00C7, 0x00F0, 0x00D0, 0x00F1, 0x00D1, 0x00F5, 0x00D5, 0x00FE, 0x00DE, 0x00A9, 2122, 0x20AC, 0x0024, 0x0192, 0x03B1, 0x03B2, 0x03B3, 0x03B4, 0x03B5, 0x03B6, 0x03B7, 0x03B8, 0x03B9, 0x03BA, 0x03BB, 0x03BC, 0x03BD, 0x03BE, 0x03BF, 0x03C0, 0x03C1, 0x03C2, 0x03C3, 0x03C4, 0x03C5, 0x03C6, 0x03C7, 0x03C8, 0x03C9, 0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397, 0x0398, 0x0399, 0x039A, 0x039B, 0x039C, 0x039D, 0x039E, 0x039F, 0x03A0, 0x03A1, 0x03A3, 0x03A4, 0x03A5, 0x03A6, 0x03A7, 0x03A8, 0x03A9]
+    table = [
+      0x00E4,
+      0x00F6,
+      0x00FC,
+      0x00C4,
+      0x00D6,
+      0x00DC,
+      0x00DF,
+      0x00BB,
+      0x00AB,
+      0x00EB,
+      0x00EF,
+      0x00FF,
+      0x00CB,
+      0x00CF,
+      0x00E1,
+      0x00E9,
+      0x00ED,
+      0x00F3,
+      0x00FA,
+      0x00FD,
+      0x00C1,
+      0x00C9,
+      0x00CD,
+      0x00D3,
+      0x00DA,
+      0x00DD,
+      0x00E0,
+      0x00E8,
+      0x00EC,
+      0x00F2,
+      0x00F9,
+      0x00C0,
+      0x00C8,
+      0x00CC,
+      0x00D2,
+      0x00D9,
+      0x00E2,
+      0x00EA,
+      0x00EE,
+      0x00F4,
+      0x00FB,
+      0x00C2,
+      0x00CA,
+      0x00CE,
+      0x00D4,
+      0x00DB,
+      0x00E5,
+      0x00C5,
+      0x00F8,
+      0x00D8,
+      0x00E3,
+      0x00F1,
+      0x00F5,
+      0x00C3,
+      0x00D1,
+      0x00D5,
+      0x00E6,
+      0x00C6,
+      0x00E7,
+      0x00C7,
+      0x00FE,
+      0x00F0,
+      0x00DE,
+      0x00D0,
+      0x00A3,
+      0x0153,
+      0x0152,
+      0x00A1,
+      0x00BF,
+      0x00AA,
+      0x00BA,
+      0x00E6,
+      0x00C6,
+      0x00F8,
+      0x00D8,
+      0x00E5,
+      0x00C5,
+      0x00E7,
+      0x00C7,
+      0x00F0,
+      0x00D0,
+      0x00F1,
+      0x00D1,
+      0x00F5,
+      0x00D5,
+      0x00FE,
+      0x00DE,
+      0x00A9,
+      2122,
+      0x20AC,
+      0x0024,
+      0x0192,
+      0x03B1,
+      0x03B2,
+      0x03B3,
+      0x03B4,
+      0x03B5,
+      0x03B6,
+      0x03B7,
+      0x03B8,
+      0x03B9,
+      0x03BA,
+      0x03BB,
+      0x03BC,
+      0x03BD,
+      0x03BE,
+      0x03BF,
+      0x03C0,
+      0x03C1,
+      0x03C2,
+      0x03C3,
+      0x03C4,
+      0x03C5,
+      0x03C6,
+      0x03C7,
+      0x03C8,
+      0x03C9,
+      0x0391,
+      0x0392,
+      0x0393,
+      0x0394,
+      0x0395,
+      0x0396,
+      0x0397,
+      0x0398,
+      0x0399,
+      0x039A,
+      0x039B,
+      0x039C,
+      0x039D,
+      0x039E,
+      0x039F,
+      0x03A0,
+      0x03A1,
+      0x03A3,
+      0x03A4,
+      0x03A5,
+      0x03A6,
+      0x03A7,
+      0x03A8,
+      0x03A9
+    ]
+
     for u <- table, into: <<>>, do: <<u::16-big>>
   end
 end

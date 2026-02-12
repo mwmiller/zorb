@@ -198,11 +198,11 @@ defmodule Zorb.Interpreter do
   # TODO: Implement hash table lookup at 0x82000 (requires baking phase support)
   # For now, these are stubs that return 0
   defw ldict(w1: I32, w2: I32, w3: I32), T.Address do
-    return(0)
+    return(I32.const(0))
   end
 
   defw mdict(addr: T.Address, w1: I32, w2: I32, w3: I32), I32 do
-    return(0)
+    return(I32.const(0))
   end
 
   defw read_byte(addr: T.Address), I32 do
@@ -675,12 +675,12 @@ defmodule Zorb.Interpreter do
 
   defw execute_0op(opc: I32) do
     if I32.eq(opc, 0x00) do
-      do_return(1)
+      do_return(I32.const(1))
       return()
     end
 
     if I32.eq(opc, 0x01) do
-      do_return(0)
+      do_return(I32.const(0))
       return()
     end
 
@@ -694,7 +694,7 @@ defmodule Zorb.Interpreter do
       # print_ret
       print_zstring(0)
       print_char_wasm(13)
-      do_return(1)
+      do_return(I32.const(1))
       return()
     end
 
@@ -1054,7 +1054,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_parent(obj: T.Object), T.Object do
-    if(I32.eq(obj, 0), do: return(0))
+    if(I32.eq(obj, 0), do: return(I32.const(0)))
 
     if(I32.le_u(@version, 3),
       do: read_byte(I32.add(get_object_address(obj), @object_parent_offset)),
@@ -1063,7 +1063,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_sibling(obj: T.Object), T.Object do
-    if(I32.eq(obj, 0), do: return(0))
+    if(I32.eq(obj, 0), do: return(I32.const(0)))
 
     if(I32.le_u(@version, 3),
       do: read_byte(I32.add(get_object_address(obj), @object_sibling_offset)),
@@ -1072,7 +1072,7 @@ defmodule Zorb.Interpreter do
   end
 
   defw get_object_child(obj: T.Object), T.Object do
-    if(I32.eq(obj, 0), do: return(0))
+    if(I32.eq(obj, 0), do: return(I32.const(0)))
 
     if(I32.le_u(@version, 3),
       do: read_byte(I32.add(get_object_address(obj), @object_child_offset)),
@@ -1192,7 +1192,7 @@ defmodule Zorb.Interpreter do
     addr = skip_name(I32.add(get_prop_table_address(obj), 1))
 
     loop PropLoop do
-      if(I32.eq(read_byte(addr), 0), do: return(0))
+      if(I32.eq(read_byte(addr), 0), do: return(I32.const(0)))
 
       if I32.eq(get_prop_num(addr), prop) do
         return(addr)
@@ -1247,14 +1247,14 @@ defmodule Zorb.Interpreter do
     end
 
     addr = get_prop_header_address(obj, prop)
-    if(I32.eq(addr, 0), do: return(0))
+    if(I32.eq(addr, 0), do: return(I32.const(0)))
     # Move to next header
     addr = I32.add(addr, I32.add(get_prop_header_size(addr), get_prop_data_size(addr)))
     get_prop_num(addr)
   end
 
   defw get_prop_len(data_addr: T.Address), I32, b: I32 do
-    if I32.eq(data_addr, 0), do: return(0)
+    if I32.eq(data_addr, 0), do: return(I32.const(0))
 
     # Working backward from data address is still needed for get_prop_len opcode
     # because it ONLY receives the data address.
@@ -1296,7 +1296,7 @@ defmodule Zorb.Interpreter do
 
   # --- Attributes Helpers ---
   defw check_attribute(obj: T.Object, attr: I32), I32 do
-    if(I32.eq(obj, 0), do: return(0))
+    if(I32.eq(obj, 0), do: return(I32.const(0)))
 
     I32.band(
       read_byte(I32.add(get_object_address(obj), I32.shr_u(attr, 3))),
@@ -1324,95 +1324,95 @@ defmodule Zorb.Interpreter do
     if I32.eq(@current_font, 3) do
       # Box Drawings
       # │
-      if I32.eq(char, 33), do: return(0x2502)
+      if I32.eq(char, 33), do: return(I32.const(0x2502))
       # ─
-      if I32.eq(char, 34), do: return(0x2500)
+      if I32.eq(char, 34), do: return(I32.const(0x2500))
       # ┌
-      if I32.eq(char, 35), do: return(0x250C)
+      if I32.eq(char, 35), do: return(I32.const(0x250C))
       # ┐
-      if I32.eq(char, 36), do: return(0x2510)
+      if I32.eq(char, 36), do: return(I32.const(0x2510))
       # └
-      if I32.eq(char, 37), do: return(0x2514)
+      if I32.eq(char, 37), do: return(I32.const(0x2514))
       # ┘
-      if I32.eq(char, 38), do: return(0x2518)
+      if I32.eq(char, 38), do: return(I32.const(0x2518))
       # ├
-      if I32.eq(char, 39), do: return(0x251C)
+      if I32.eq(char, 39), do: return(I32.const(0x251C))
       # ┤
-      if I32.eq(char, 40), do: return(0x2524)
+      if I32.eq(char, 40), do: return(I32.const(0x2524))
       # ┬
-      if I32.eq(char, 41), do: return(0x252C)
+      if I32.eq(char, 41), do: return(I32.const(0x252C))
       # ┴
-      if I32.eq(char, 42), do: return(0x2534)
+      if I32.eq(char, 42), do: return(I32.const(0x2534))
       # ┼
-      if I32.eq(char, 43), do: return(0x253C)
+      if I32.eq(char, 43), do: return(I32.const(0x253C))
 
       # Arrows
       # ↑
-      if I32.eq(char, 44), do: return(0x2191)
+      if I32.eq(char, 44), do: return(I32.const(0x2191))
       # ↓
-      if I32.eq(char, 45), do: return(0x2193)
+      if I32.eq(char, 45), do: return(I32.const(0x2193))
       # ←
-      if I32.eq(char, 46), do: return(0x2190)
+      if I32.eq(char, 46), do: return(I32.const(0x2190))
       # →
-      if I32.eq(char, 47), do: return(0x2192)
+      if I32.eq(char, 47), do: return(I32.const(0x2192))
 
       # Runes (Anglian Futhorc)
       # a ᚪ
-      if I32.eq(char, 97), do: return(0x16AA)
+      if I32.eq(char, 97), do: return(I32.const(0x16AA))
       # b ᛒ
-      if I32.eq(char, 98), do: return(0x16D2)
+      if I32.eq(char, 98), do: return(I32.const(0x16D2))
       # c (eo) ᛇ
-      if I32.eq(char, 99), do: return(0x16C7)
+      if I32.eq(char, 99), do: return(I32.const(0x16C7))
       # d ᛞ
-      if I32.eq(char, 100), do: return(0x16DE)
+      if I32.eq(char, 100), do: return(I32.const(0x16DE))
       # e ᛖ
-      if I32.eq(char, 101), do: return(0x16D6)
+      if I32.eq(char, 101), do: return(I32.const(0x16D6))
       # f ᚠ
-      if I32.eq(char, 102), do: return(0x16A0)
+      if I32.eq(char, 102), do: return(I32.const(0x16A0))
       # g ᚷ
-      if I32.eq(char, 103), do: return(0x16B7)
+      if I32.eq(char, 103), do: return(I32.const(0x16B7))
       # h ᚻ
-      if I32.eq(char, 104), do: return(0x16BB)
+      if I32.eq(char, 104), do: return(I32.const(0x16BB))
       # i ᛁ
-      if I32.eq(char, 105), do: return(0x16C1)
+      if I32.eq(char, 105), do: return(I32.const(0x16C1))
       # j ᛄ
-      if I32.eq(char, 106), do: return(0x16C4)
+      if I32.eq(char, 106), do: return(I32.const(0x16C4))
       # k (other k) ᛢ
-      if I32.eq(char, 107), do: return(0x16E2)
+      if I32.eq(char, 107), do: return(I32.const(0x16E2))
       # l ᛚ
-      if I32.eq(char, 108), do: return(0x16DA)
+      if I32.eq(char, 108), do: return(I32.const(0x16DA))
       # m ᛗ
-      if I32.eq(char, 109), do: return(0x16D7)
+      if I32.eq(char, 109), do: return(I32.const(0x16D7))
       # n ᚾ
-      if I32.eq(char, 110), do: return(0x16BE)
+      if I32.eq(char, 110), do: return(I32.const(0x16BE))
       # o ᚩ
-      if I32.eq(char, 111), do: return(0x16A9)
+      if I32.eq(char, 111), do: return(I32.const(0x16A9))
       # p ᛈ
-      if I32.eq(char, 112), do: return(0x16C8)
+      if I32.eq(char, 112), do: return(I32.const(0x16C8))
       # q (k) ᚳ
-      if I32.eq(char, 113), do: return(0x16B3)
+      if I32.eq(char, 113), do: return(I32.const(0x16B3))
       # r ᚱ
-      if I32.eq(char, 114), do: return(0x16B1)
+      if I32.eq(char, 114), do: return(I32.const(0x16B1))
       # s ᛋ
-      if I32.eq(char, 115), do: return(0x16CB)
+      if I32.eq(char, 115), do: return(I32.const(0x16CB))
       # t ᛏ
-      if I32.eq(char, 116), do: return(0x16CF)
+      if I32.eq(char, 116), do: return(I32.const(0x16CF))
       # u ᚢ
-      if I32.eq(char, 117), do: return(0x16A2)
+      if I32.eq(char, 117), do: return(I32.const(0x16A2))
       # v (ea) ᛪ
-      if I32.eq(char, 118), do: return(0x16EA)
+      if I32.eq(char, 118), do: return(I32.const(0x16EA))
       # w ᚹ
-      if I32.eq(char, 119), do: return(0x16B9)
+      if I32.eq(char, 119), do: return(I32.const(0x16B9))
       # x (z) ᛉ
-      if I32.eq(char, 120), do: return(0x16C9)
+      if I32.eq(char, 120), do: return(I32.const(0x16C9))
       # y ᚣ
-      if I32.eq(char, 121), do: return(0x16A3)
+      if I32.eq(char, 121), do: return(I32.const(0x16A3))
       # z (oe) ᛟ
-      if I32.eq(char, 122), do: return(0x16DF)
+      if I32.eq(char, 122), do: return(I32.const(0x16DF))
     end
 
     if(I32.lt_u(char, 155), do: return(char))
-    if(I32.gt_u(char, 251), do: return(63))
+    if(I32.gt_u(char, 251), do: return(I32.const(63)))
 
     if I32.ne(@unicode_table_base, 0) do
       num = read_byte(@unicode_table_base)
@@ -1423,7 +1423,7 @@ defmodule Zorb.Interpreter do
         )
       end
 
-      return(63)
+      return(I32.const(63))
     end
 
     if(I32.lt_u(I32.sub(char, 155), 97),
@@ -1737,7 +1737,7 @@ defmodule Zorb.Interpreter do
       do:
         (
           @random_state = 1
-          return(0)
+          return(I32.const(0))
         )
     )
 
@@ -1785,10 +1785,10 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(ji, take) do
       if I32.eq(off, 0) do
-        do_return(0)
+        do_return(I32.const(0))
       else
         if I32.eq(off, 1) do
-          do_return(1)
+          do_return(I32.const(1))
         else
           @pc = I32.add(I32.add(@pc, off), -2)
         end
