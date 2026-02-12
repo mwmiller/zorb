@@ -27,22 +27,22 @@ defmodule Zorb.Capsule.Assembler do
     {ro, so} = calculate_offsets(version, story_data)
     unicode = generate_unicode_binary()
 
-    # Standard 78-char alphabet
     # Spec 3.5.3: Alphabets. Note: zchars 0-5 are special, table starts at zchar 6.
-    a0 = ~c"abcdefghijklmnopqrstuvwxyz"
-    a1 = ~c"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    a2_v1 = ~c" @0123456789.,!?_#'\"/\\<-:()"
-    a2_v2 = [?\s, 13 | ~c"0123456789.,!?_#'\"/\\-:()"]
+    a0 = Enum.to_list(?a..?z)
+    a1 = Enum.to_list(?A..?Z)
 
-    a2 = if version <= 2, do: a2_v1, else: a2_v2
+    # V1 A2: Spec 3.5.4
+    a2_v1 = [
+      ?\s, ?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?., ?,, ?!, ??, ?_, ?#, ?', ?\", ?/, ?\\, ?<, ?-, ?:, ?(, ?)
+    ]
 
-    # Each alphabet must be exactly 26 chars (zchars 6-31)
-    if length(a0) != 26 or length(a1) != 26 or length(a2) != 26 do
-      raise "Alphabets must be 26 chars each: a0=#{length(a0)}, a1=#{length(a1)}, a2=#{length(a2)}"
-    end
+    # V2+ A2: Spec 3.5.3
+    a2_v2 = [
+      0, 13, ?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?., ?,, ?!, ??, ?_, ?#, ?', ?\", ?/, ?\\, ?-, ?:, ?(, ?)
+    ]
 
-    alphabets = a0 ++ a1 ++ a2
-    if length(alphabets) != 78, do: raise("Wrong alphabet size: #{length(alphabets)}")
+    alphabets = a0 ++ a1 ++ a2_v1 ++ a2_v2
+    if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
 
     # 3. Create Replacement ASTs
     host_registration_ast = quote(do: Orb.Import.register(Zorb.Capsule.Host))
@@ -371,7 +371,10 @@ defmodule Zorb.Capsule.Assembler do
                         end
 
                         if I32.eq(found, 0) do
-                          alph_addr = I32.const(0x81034)
+                          alph_addr = 0x81034
+                          if I32.ne(@version, 1) do
+                            alph_addr = 0x8104E
+                          end
 
                           k = 0
 
@@ -515,11 +518,12 @@ defmodule Zorb.Capsule.Assembler do
 
                     w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
                     w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
-                    w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
+                    w3 = 0
 
                     if I32.le_u(@version, 3) do
                       w2 = I32.or(w2, 0x8000)
                     else
+                      w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
                       w3 = I32.or(w3, 0x8000)
                     end
 
@@ -553,7 +557,10 @@ defmodule Zorb.Capsule.Assembler do
                     z0 = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
                     k = 0
                     z1 = 5
-                    alph_addr = I32.const(0x81034)
+                    alph_addr = 0x81034
+                    if I32.ne(@version, 1) do
+                      alph_addr = 0x8104E
+                    end
 
                     loop SepFindLoop do
                       if I32.lt_u(k, 26) do
@@ -576,11 +583,12 @@ defmodule Zorb.Capsule.Assembler do
 
                     w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
                     w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
-                    w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
+                    w3 = 0
 
                     if I32.le_u(@version, 3) do
                       w2 = I32.or(w2, 0x8000)
                     else
+                      w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
                       w3 = I32.or(w3, 0x8000)
                     end
 
@@ -724,7 +732,11 @@ defmodule Zorb.Capsule.Assembler do
                   end
 
                   if I32.eq(found, 0) do
-                    alph_addr = I32.const(0x81034)
+                    alph_addr = 0x81034
+                    if I32.ne(@version, 1) do
+                      alph_addr = 0x8104E
+                    end
+
                     k = 0
 
                     Control.block A2Search2 do
@@ -839,11 +851,12 @@ defmodule Zorb.Capsule.Assembler do
 
               w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
               w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
-              w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
+              w3 = 0
 
               if I32.le_u(@version, 3) do
                 w2 = I32.or(w2, 0x8000)
               else
+                w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
                 w3 = I32.or(w3, 0x8000)
               end
 

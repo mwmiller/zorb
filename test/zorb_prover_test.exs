@@ -160,7 +160,7 @@ defmodule Zorb.ProverTest do
     end
   end
 
-  @tag :skip
+  
   test "zork1.z1 integration" do
     prover_path = Path.join(@prover_dir, "zork1.z1")
     owner = self()
@@ -186,7 +186,7 @@ defmodule Zorb.ProverTest do
     end
   end
 
-  @tag :skip
+  
   test "zork1.z2 integration" do
     prover_path = Path.join(@prover_dir, "zork1.z2")
     owner = self()
@@ -234,7 +234,7 @@ defmodule Zorb.ProverTest do
     end
   end
 
-  @tag :skip
+  
   test "lostpig.z8 integration" do
     prover_path = Path.join(@prover_dir, "lostpig.z8")
     owner = self()

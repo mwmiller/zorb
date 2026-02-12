@@ -771,7 +771,7 @@ defmodule Zorb.Interpreter do
       do_call(
         unpack_routine_address(o1),
         fetch_byte(),
-        calculate_arg_count2(mask, t2),
+        I32.sub(calculate_arg_count2(mask, t2), 1),
         o2,
         o3,
         o4,
@@ -860,7 +860,7 @@ defmodule Zorb.Interpreter do
       do_call(
         unpack_routine_address(o1),
         fetch_byte(),
-        calculate_arg_count2(mask, t2),
+        I32.sub(calculate_arg_count2(mask, t2), 1),
         o2,
         o3,
         o4,
@@ -935,7 +935,7 @@ defmodule Zorb.Interpreter do
       do_call(
         unpack_routine_address(o1),
         0xFF,
-        calculate_arg_count2(mask, t2),
+        I32.sub(calculate_arg_count2(mask, t2), 1),
         o2,
         o3,
         o4,
@@ -954,7 +954,7 @@ defmodule Zorb.Interpreter do
       do_call(
         unpack_routine_address(o1),
         0xFF,
-        calculate_arg_count2(mask, t2),
+        I32.sub(calculate_arg_count2(mask, t2), 1),
         o2,
         o3,
         o4,
@@ -1606,7 +1606,6 @@ defmodule Zorb.Interpreter do
       end
     else
       # V3+ shift rules (Spec 3.2.3)
-      # (Chars 1, 2, 3 are handled by abbreviation logic above)
       if I32.eq(zchar, 4) do
         @next_alphabet = 1
         return()
@@ -1632,13 +1631,20 @@ defmodule Zorb.Interpreter do
 
     # Optimized lookup using baked data segments
     if I32.ge_u(zchar, 6) do
-      # A0 is at 0x81000, A1 at 0x8101A (0x81000 + 26), A2 at 0x81034 (0x81000 + 52)
+      # A0 is at 0x81000, A1 at 0x8101A, A2 (V1) at 0x81034, A2 (V2+) at 0x8104E
       table_addr = I32.add(0x81000, I32.mul(alph, 26))
+
+      # Switch to the correct A2 table based on version
+      if I32.eq(alph, 2) do
+        if I32.ne(@version, 1) do
+          table_addr = 0x8104E
+        end
+      end
 
       # All alphabets use zchars 6-31 (offset by 6)
       b = read_byte(I32.add(table_addr, I32.sub(zchar, 6)))
       # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.log_zchar(alph, zchar, b)
+      # Zorb.Capsule.Host.log_zchar(alph, zchar, b)
       print_char_wasm(zscii_to_unicode(b))
 
       @next_alphabet = -1
@@ -2140,7 +2146,7 @@ defmodule Zorb.Interpreter do
           do_call(
             unpack_routine_address(o1),
             if(I32.eq(opc, 0x0C), do: fetch_byte(), else: 0xFF),
-            calculate_arg_count2(t1, t2),
+            I32.sub(calculate_arg_count2(t1, t2), 1),
             o2,
             o3,
             o4,
