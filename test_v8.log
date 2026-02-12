@@ -1,15 +1,0 @@
-Running ExUnit with seed: 813527, max_cases: 1
-Excluding tags: [:test]
-Including tags: [location: {"test/zorb_prover_test.exs", 235}]
-
-
-Zorb.ProverTest [test/zorb_prover_test.exs]
-  * test zork1.z2 integration [L#188]  * test zork1.z2 integration (excluded) [L#188]
-  * test simple_test.z7 integration [L#213]  * test simple_test.z7 integration (excluded) [L#213]
-  * test zork1.z1 integration [L#163]  * test zork1.z1 integration (excluded) [L#163]
-  * test strictz.z5 prover integration [L#72]  * test strictz.z5 prover integration (excluded) [L#72]
-  * test zil_test.z3 prover integration [L#16]  * test zil_test.z3 prover integration (excluded) [L#16]
-  * test simple_test.z5 prover integration [L#102]  * test simple_test.z5 prover integration (excluded) [L#102]
-  * test unicode.z5 prover integration [L#124]  * test unicode.z5 prover integration (excluded) [L#124]
-  * test czech.z5 prover integration [L#41]  * test czech.z5 prover integration (excluded) [L#41]
-  * test lostpig.z8 integration [L#235]

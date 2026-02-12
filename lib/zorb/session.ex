@@ -230,6 +230,15 @@ defmodule Zorb.Session do
     end
   end
 
+  @impl true
+  def terminate(_reason, state) do
+    if state.task do
+      Task.shutdown(state.task, :brutal_kill)
+    end
+
+    :ok
+  end
+
   # --- Internal functions ---
 
   defp run_loop(instance, session_pid, timeout) do
@@ -277,7 +286,12 @@ defmodule Zorb.Session do
           {:fn, [], [:i32],
            fn _ctx ->
              Logger.debug("Zorb Session: read_char() called")
-             GenServer.call(session_pid, :get_input, :infinity)
+
+             try do
+               GenServer.call(session_pid, :get_input, :infinity)
+             catch
+               :exit, _ -> 0
+             end
            end},
         "get_random" =>
           {:fn, [:i32], [:i32],
