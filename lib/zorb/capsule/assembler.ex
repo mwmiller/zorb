@@ -109,10 +109,9 @@ defmodule Zorb.Capsule.Assembler do
       hash: :binary.bin_to_list(hash_table)
     }
 
-    payload_path =
-      Path.expand("tmp/payload_#{version}_#{:erlang.unique_integer([:positive])}.bin")
+    payload_path = Zorb.Config.payload_path(version)
 
-    File.mkdir_p!("tmp")
+    Zorb.Config.ensure_dirs!()
     File.write!(payload_path, :erlang.term_to_binary(payload))
 
     # 3. Create Replacement ASTs
@@ -1097,7 +1096,7 @@ defmodule Zorb.Capsule.Assembler do
       end)
 
     source_code = Sourceror.to_string(final_ast)
-    File.write!("tmp/last_bespoke_source.ex", source_code)
+    File.write!(Path.join(Zorb.Config.working_dir(), "last_bespoke_source.ex"), source_code)
 
     {source_code, nil}
   end

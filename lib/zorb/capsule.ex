@@ -5,7 +5,6 @@ defmodule Zorb.Capsule do
   alias Zorb.Capsule.Assembler
 
   @compiler_version Mix.Project.config()[:version]
-  @cache_dir "tmp/capsule_cache"
 
   def compiler_version, do: @compiler_version
 
@@ -42,8 +41,8 @@ defmodule Zorb.Capsule do
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 
     {source, _data} = Assembler.assemble(story_data, module_name)
-    File.mkdir_p!("tmp")
-    File.write!("tmp/last_assembled.ex", source)
+    Zorb.Config.ensure_dirs!()
+    File.write!(Path.join(Zorb.Config.working_dir(), "last_assembled.ex"), source)
 
     try do
       Code.compile_string(source)
@@ -54,13 +53,13 @@ defmodule Zorb.Capsule do
     end
 
     wat = Orb.to_wat(module_name)
-    File.write!("tmp/last_generated.wat", wat)
+    File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wat"), wat)
     wat
   end
 
   defp load_from_cache(story_data) do
     hash = :crypto.hash(:sha256, story_data) |> Base.encode16()
-    path = Path.join(@cache_dir, "#{hash}.wat")
+    path = Path.join(Zorb.Config.cache_dir(), "#{hash}.wat")
 
     if File.exists?(path) do
       {:ok, File.read!(path)}
@@ -71,7 +70,7 @@ defmodule Zorb.Capsule do
 
   defp save_to_cache(story_data, wasm) do
     hash = :crypto.hash(:sha256, story_data) |> Base.encode16()
-    File.mkdir_p!(@cache_dir)
-    File.write!(Path.join(@cache_dir, "#{hash}.wat"), wasm)
+    File.mkdir_p!(Zorb.Config.cache_dir())
+    File.write!(Path.join(Zorb.Config.cache_dir(), "#{hash}.wat"), wasm)
   end
 end
