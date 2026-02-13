@@ -30,8 +30,8 @@ defmodule Zorb.Session do
   Starts a new Z-machine session.
 
   The first argument can be:
-  - {:story_path, path}: Compile the story at the given path.
-  - {:wasm_bytes, bytes}: Use the provided WASM bytes directly.
+  - `{:story_path, path}`: Compile the story at the given path.
+  - `{:wasm_bytes, bytes}`: Use the provided WASM bytes directly.
 
   Options:
   - :notify_to: The PID to send output and halt messages to. Defaults to self().

@@ -26,5 +26,5 @@ zorb-*.tar
 /*.epub
 
 test_output.log
-zorb
+/zorb_interpreter
 .DS_store

@@ -25,10 +25,16 @@ end
 
 ### Running a Story
 
-You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI using the provided wrapper script:
+You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI. First, build the standalone executable:
 
 ```bash
-bin/run_story path/to/your/story.z5
+mix escript.build
+```
+
+Then run a story:
+
+```bash
+./zorb_interpreter path/to/your/story.z5 --cache
 ```
 
 ### Programmatic Usage
@@ -68,9 +74,8 @@ Unlike traditional Z-machine interpreters that load and interpret story data at 
 
 ## Documentation
 
-- [ZMACHINE.md](./ZMACHINE.md): Comprehensive Z-machine specification and implementation notes.
-- [CAPSULE_HOST.md](./CAPSULE_HOST.md): Technical details on the WASM host interface.
-- [usage-rules.md](./usage-rules.md): Essential rules and conventions for library consumers.
+- [usage-rules.md](./usage-rules.md): Essential rules and conventions for library consumers, including the WASM host interface.
+- [Z-Machine Specification](https://zspec.jaredreisinger.com/): The official Z-machine specification.
 
 ## Development
 

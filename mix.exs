@@ -14,9 +14,13 @@ defmodule Zorb.MixProject do
       package: package(),
       name: "Zorb",
       source_url: "https://github.com/mwmiller/zorb",
+      escript: [main_module: Zorb.CLI, name: "zorb_interpreter"],
       docs: [
         main: "Zorb",
-        extras: ["README.md", "usage-rules.md"]
+        extras: [
+          "README.md",
+          "usage-rules.md"
+        ]
       ]
     ]
   end
@@ -29,7 +33,8 @@ defmodule Zorb.MixProject do
     [
       maintainers: ["Matthew Miller"],
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/mwmiller/zorb"}
+      links: %{"GitHub" => "https://github.com/mwmiller/zorb"},
+      files: ~w(lib mix.exs README.md LICENSE usage-rules.md)
     ]
   end
 
