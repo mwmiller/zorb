@@ -27,3 +27,4 @@ zorb-*.tar
 
 test_output.log
 zorb
+.DS_store
