@@ -30,17 +30,19 @@ defmodule Zorb.Session do
   Starts a new Z-machine session.
 
   The first argument can be:
-  - `{:story_path, path}`: Compile the story at the given path.
-  - `{:wasm_bytes, bytes}`: Use the provided WASM bytes directly.
+  - {:story_path, path}: Compile the story at the given path.
+  - {:wasm_bytes, bytes}: Use the provided WASM bytes directly.
 
   Options:
-  - `:notify_to`: The PID to send output and halt messages to. Defaults to `self()`.
-  - `:timeout`: Timeout for WASM execution steps. Defaults to `:infinity`.
-  - `:imports`: Map of WASM import overrides.
-  - `:cache`: Boolean, whether to cache compilation (only if `{:story_path, path}` is used).
+  - :notify_to: The PID to send output and halt messages to. Defaults to self().
+  - :timeout: Timeout for WASM execution steps. Defaults to :infinity.
+  - :imports: Map of WASM import overrides.
+  - :cache: Boolean, whether to cache compilation (only if {:story_path, path} is used).
   """
   def start_link(source, opts \\ []) do
-    GenServer.start_link(__MODULE__, {source, opts})
+    timeout = Keyword.get(opts, :timeout, :infinity)
+    start_timeout = if timeout == :infinity, do: :infinity, else: timeout + 5000
+    GenServer.start_link(__MODULE__, {source, opts}, timeout: start_timeout)
   end
 
   @doc """
@@ -103,7 +105,7 @@ defmodule Zorb.Session do
   end
 
   defp initialize_instance(instance, notify_to, timeout) do
-    case Wasmex.call_function(instance, "init", []) do
+    case Wasmex.call_function(instance, "init", [], timeout) do
       {:ok, _} ->
         state = %State{
           instance: instance,
@@ -300,11 +302,7 @@ defmodule Zorb.Session do
            end},
         "log_zchar" =>
           {:fn, [:i32, :i32, :i32], [],
-           fn _ctx, alph, zchar, zscii ->
-             Logger.debug(
-               "Zorb Session: decode_zchar: alph=#{alph}, zchar=#{zchar}, zscii=#{zscii} ('#{[zscii]}')"
-             )
-
+           fn _ctx, _alph, _zchar, _zscii ->
              nil
            end},
         "set_window" =>
