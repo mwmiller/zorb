@@ -297,7 +297,7 @@ defmodule Zorb.Session do
              end
            end},
         "get_random_seed" => {:fn, [], [:i32], fn _ctx -> :rand.uniform(0x7FFFFFFF) end},
-        "get_capabilities" => {:fn, [], [:i32], fn _ctx -> 0x0F end},
+        "get_capabilities" => {:fn, [], [:i32], fn _ctx -> 0x1F end},
         "halt" =>
           {:fn, [:i32, :i32, :i32], [],
            fn _ctx, reason, pc, opcode ->
@@ -317,9 +317,15 @@ defmodule Zorb.Session do
           {:fn, [:i32], [],
            fn _ctx, window_id ->
              GenServer.cast(session_pid, {:set_window, window_id})
+             send(session_pid, {:zorb_output, {:set_window, window_id}})
              nil
            end},
-        "split_window" => {:fn, [:i32], [], fn _ctx, _lines -> nil end},
+        "split_window" =>
+          {:fn, [:i32], [],
+           fn _ctx, lines ->
+             send(session_pid, {:zorb_output, {:split_window, lines}})
+             nil
+           end},
         "set_cursor" =>
           {:fn, [:i32, :i32], [],
            fn _ctx, l, c ->
@@ -342,6 +348,18 @@ defmodule Zorb.Session do
           {:fn, [:i32], [],
            fn _ctx, style ->
              send(session_pid, {:zorb_output, {:style, style}})
+             nil
+           end},
+        "set_colour" =>
+          {:fn, [:i32, :i32], [],
+           fn _ctx, fg, bg ->
+             send(session_pid, {:zorb_output, {:colour, fg, bg}})
+             nil
+           end},
+        "sound_effect" =>
+          {:fn, [:i32], [],
+           fn _ctx, number ->
+             send(session_pid, {:zorb_output, {:sound, number}})
              nil
            end},
         "get_screen_size" =>

@@ -907,6 +907,12 @@ defmodule Zorb.Interpreter do
       return()
     end
 
+    if I32.eq(opc, 0x15) do
+      # sound_effect
+      do_sound_effect(o1)
+      return()
+    end
+
     if I32.eq(opc, 0x13) do
       # output_stream
       do_output_stream(sign_extend_16(o1), o2)
@@ -1007,6 +1013,16 @@ defmodule Zorb.Interpreter do
         fetch_result_and_store(I32.shl(o1, sign_extend_16(o2)))
       else
         fetch_result_and_store(I32.shr_u(I32.band(o1, 0xFFFF), I32.sub(0, sign_extend_16(o2))))
+      end
+
+      return()
+    end
+
+    if I32.eq(opc, 0x02) do
+      if I32.gt_s(sign_extend_16(o2), 0) do
+        fetch_result_and_store(I32.shl(o1, sign_extend_16(o2)))
+      else
+        fetch_result_and_store(I32.shr_s(sign_extend_16(o1), I32.sub(0, sign_extend_16(o2))))
       end
 
       return()
@@ -2035,6 +2051,16 @@ defmodule Zorb.Interpreter do
     else
       fetch_result_and_store(0)
     end
+  end
+
+  defw do_set_colour(fg: I32, bg: I32) do
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+    Zorb.Capsule.Host.set_colour(fg, bg)
+  end
+
+  defw do_sound_effect(number: I32) do
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+    Zorb.Capsule.Host.sound_effect(number)
   end
 
   defw do_copy_table(src: T.Address, dest: T.Address, len: I32), i: I32 do

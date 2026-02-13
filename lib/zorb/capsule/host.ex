@@ -18,5 +18,7 @@ defmodule Zorb.Capsule.Host do
   defw(erase_window(window_id: I32))
   defw(erase_line(value: I32))
   defw(set_text_style(style: I32))
+  defw(set_colour(foreground: I32, background: I32))
+  defw(sound_effect(number: I32))
   defw(get_screen_size(), I32)
 end

@@ -30,6 +30,12 @@ Reasons include:
 - `3`: Illegal opcode
 - `4`: Static memory violation
 
+### `sound_effect(number: i32)`
+Plays a sound effect.
+- `1`: High-pitched bleep.
+- `2`: Low-pitched bleep.
+- `3+`: Story-defined sound effect ID.
+
 ## Screen Model Interface (V3-V8)
 
 The following functions are used to implement the Z-machine screen model (Spec 8). If the Host signals support via `get_capabilities`, it **must** provide these:
@@ -58,6 +64,18 @@ Sets the text rendering style. Styles are bit-mapped:
 - `2`: Bold
 - `4`: Italic
 - `8`: Fixed-pitch
+
+### `set_colour(foreground: i32, background: i32)`
+Sets the text colors.
+- `1`: Default
+- `2`: Black
+- `3`: Red
+- `4`: Green
+- `5`: Yellow
+- `6`: Blue
+- `7`: Magenta
+- `8`: Cyan
+- `9`: White
 
 ### `get_screen_size() -> i32`
 Returns the current dimensions of the host display as a packed 32-bit integer: `[height:16, width:16]`.

@@ -16,7 +16,7 @@ defmodule Zorb.MixProject do
       source_url: "https://github.com/mwmiller/zorb",
       docs: [
         main: "Zorb",
-        extras: ["README.md", "ZMACHINE.md", "CAPSULE_HOST.md", "usage-rules.md"]
+        extras: ["README.md", "usage-rules.md"]
       ]
     ]
   end

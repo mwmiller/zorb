@@ -98,9 +98,13 @@ defmodule Zorb.TestSupport.Expect do
 
   defp append_output(buffer, char) when is_integer(char), do: buffer <> List.to_string([char])
   defp append_output(buffer, {:cursor, line, col}), do: buffer <> "\n[Cursor: #{line}, #{col}]\n"
+  defp append_output(buffer, {:set_window, id}), do: buffer <> "\n[Set Window: #{id}]\n"
+  defp append_output(buffer, {:split_window, lines}), do: buffer <> "\n[Split Window: #{lines}]\n"
   defp append_output(buffer, {:erase_window, id}), do: buffer <> "\n[Erase Window: #{id}]\n"
   defp append_output(buffer, {:erase_line, val}), do: buffer <> "[Erase Line: #{val}]"
   defp append_output(buffer, {:style, style}), do: buffer <> "[Style: #{style}]"
+  defp append_output(buffer, {:colour, fg, bg}), do: buffer <> "[Colour: #{fg}, #{bg}]"
+  defp append_output(buffer, {:sound, number}), do: buffer <> "[Sound: #{number}]"
   defp append_output(buffer, other), do: buffer <> "[Unknown Output: #{inspect(other)}]"
 
   defp check_disputes!(buffer) do

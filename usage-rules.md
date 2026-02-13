@@ -24,8 +24,13 @@ Your process will receive `{:zorb_output, data}` messages.
 - **Characters**: `{:zorb_output, char}` where `char` is an integer (ZSCII/Unicode).
 - **Screen Commands**: `{:zorb_output, {command, ...}}` for advanced rendering:
     - `{:cursor, line, col}`: Move the cursor.
-    - `{:style, style_id}`: Change text style (bold, italic, etc.).
+    - `{:set_window, window_id}`: Select active window (0=Lower, 1=Upper).
+    - `{:split_window, lines}`: Split screen (Window 1 gets top N lines).
+    - `{:style, style_id}`: Change style (0=Normal, 1=Reverse, 2=Bold, 4=Italic, 8=Fixed).
+    - `{:colour, fg, bg}`: Change colors (1=Def, 2=Blk, 3=Red, 4=Grn, 5=Yel, 6=Blu, 7=Mag, 8=Cyn, 9=Wht).
+    - `{:sound, number}`: Play a sound effect (1=High beep, 2=Low beep).
     - `{:erase_window, window_id}`: Clear a window.
+    - `{:erase_line, value}`: Erase current line.
 
 ### Handling Game Termination
 When the game ends (or crashes), you will receive:
