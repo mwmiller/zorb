@@ -9,7 +9,6 @@ defmodule Zorb.Capsule.Host do
   defw(get_random_seed(), I32)
   defw(get_capabilities(), I32)
   defw(halt(reason: I32, pc: I32, opcode: I32))
-  defw(log_step(tick: I32, pc: I32, opcode: I32))
   defw(log_zchar(alph: I32, zchar: I32, zscii: I32))
 
   # Screen Model

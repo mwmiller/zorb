@@ -10,8 +10,7 @@ defmodule Zorb.TestRuntime do
       {:zio, :read_char, fn -> 0 end},
       {:zio, :get_random_seed, fn -> 12_345 end},
       {:zio, :get_capabilities, fn -> 0 end},
-      {:zio, :halt, fn _, _, _ -> 0 end},
-      {:zio, :log_step, fn _, _ -> nil end}
+      {:zio, :halt, fn _, _, _ -> 0 end}
       # Tokenize is now in WASM only (bespoke assembler)
     ]
   end
@@ -144,7 +143,6 @@ defmodule Zorb.TestRuntime do
   defp get_signature(:zio, :get_random_seed), do: {[], [:i32]}
   defp get_signature(:zio, :get_capabilities), do: {[], [:i32]}
   defp get_signature(:zio, :halt), do: {[:i32, :i32, :i32], []}
-  defp get_signature(:zio, :log_step), do: {[:i32, :i32], []}
   defp get_signature(:zio, :tokenize), do: {[:i32, :i32, :i32, :i32], []}
 
   def write_memory(instance, offset, data) do

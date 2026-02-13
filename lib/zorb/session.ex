@@ -313,17 +313,6 @@ defmodule Zorb.Session do
 
              nil
            end},
-        "log_step" =>
-          {:fn, [:i32, :i32, :i32], [],
-           fn _ctx, tick, pc, opcode ->
-             if tick <= 5 or rem(tick, 1000) == 0 do
-               Logger.debug(
-                 "Zorb Session: Step #{tick}: PC=0x#{Integer.to_string(pc, 16)} Op=0x#{Integer.to_string(opcode, 16)}"
-               )
-             end
-
-             nil
-           end},
         "set_window" =>
           {:fn, [:i32], [],
            fn _ctx, window_id ->

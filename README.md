@@ -25,16 +25,7 @@ end
 
 ### Running a Story
 
-You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI.
-
-#### Building the Escript
-
-```bash
-mix escript.build
-./zorb path/to/your/story.z5
-```
-
-Alternatively, use the provided wrapper script:
+You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI using the provided wrapper script:
 
 ```bash
 bin/run_story path/to/your/story.z5
@@ -44,16 +35,13 @@ bin/run_story path/to/your/story.z5
 
 To run a story within your own Elixir application:
 
-#### Using Zorb.Session (Recommended for Phoenix/OTP)
+#### Using Zorb.run/2 (Recommended)
 
-`Zorb.Session` is a `GenServer` that provides a non-blocking, asynchronous interface. It is ideal for use in Phoenix channels or anywhere you need a long-lived, supervised process.
+`Zorb.run/2` starts a `Zorb.Session` (a GenServer) that provides a non-blocking, asynchronous interface. It is ideal for use in Phoenix channels or anywhere you need a long-lived, supervised process.
 
 ```elixir
 # Start the session from a story file with caching enabled
-{:ok, session_pid} = Zorb.Session.start_link({:story_path, "path/to/story.z5"}, notify_to: self(), cache: true)
-
-# Or start from previously compiled WASM bytes (WAT also accepted)
-{:ok, session_pid} = Zorb.Session.start_link({:wasm_bytes, wasm_binary}, notify_to: self())
+{:ok, session_pid} = Zorb.run("path/to/story.z5", cache: true)
 
 # Listen for messages in your process
 receive do
@@ -82,8 +70,7 @@ Unlike traditional Z-machine interpreters that load and interpret story data at 
 
 - [ZMACHINE.md](./ZMACHINE.md): Comprehensive Z-machine specification and implementation notes.
 - [CAPSULE_HOST.md](./CAPSULE_HOST.md): Technical details on the WASM host interface.
-- [AGENTS.md](./AGENTS.md): Guidelines for developer agents working on the codebase.
-- [HANDOFF.md](./HANDOFF.md): Latest project status and handoff notes.
+- [usage-rules.md](./usage-rules.md): Essential rules and conventions for library consumers.
 
 ## Development
 

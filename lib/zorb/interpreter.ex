@@ -2123,8 +2123,6 @@ defmodule Zorb.Interpreter do
     o8: I32,
     m: I32 do
     @tick = I32.add(@tick, 1)
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    Zorb.Capsule.Host.log_step(@tick, @pc, read_byte(@pc))
     b = fetch_byte()
 
     if I32.eq(I32.band(b, 0xC0), 0xC0) do

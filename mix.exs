@@ -10,11 +10,14 @@ defmodule Zorb.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       aliases: aliases(),
-      escript: [main_module: Zorb.CLI],
       description: description(),
       package: package(),
       name: "Zorb",
-      source_url: "https://github.com/mwmiller/zorb"
+      source_url: "https://github.com/mwmiller/zorb",
+      docs: [
+        main: "Zorb",
+        extras: ["README.md", "ZMACHINE.md", "CAPSULE_HOST.md", "usage-rules.md"]
+      ]
     ]
   end
 
@@ -60,7 +63,8 @@ defmodule Zorb.MixProject do
       {:wasmex, "~> 0.14.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:usage_rules, "~> 0.1", only: [:dev, :test], runtime: false},
-      {:sourceror, "~> 1.7"}
+      {:sourceror, "~> 1.7"},
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
   end
 end

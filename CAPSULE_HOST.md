@@ -30,9 +30,6 @@ Reasons include:
 - `3`: Illegal opcode
 - `4`: Static memory violation
 
-### `log_step(tick: i32, pc: i32, opcode: i32)`
-Optional import for instruction-level tracing. Called before each opcode execution.
-
 ## Screen Model Interface (V3-V8)
 
 The following functions are used to implement the Z-machine screen model (Spec 8). If the Host signals support via `get_capabilities`, it **must** provide these:

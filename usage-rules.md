@@ -52,4 +52,4 @@ config :zorb,
 
 ## Host Interface (Advanced)
 
-If you are implementing your own low-level host instead of using `Zorb.Session`, you must provide the `zio` WASM namespace. See `Zorb.Capsule.Host` for the required function signatures.
+If you are implementing your own low-level host instead of using `Zorb.Session`, you must provide the `zio` WASM namespace. See [CAPSULE_HOST.md](./CAPSULE_HOST.md) for the required function signatures and implementation details.

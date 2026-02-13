@@ -56,16 +56,6 @@ Proper handling of **Variable 0 (SP)** is critical.
 
 ## 7. Tracing and Debugging
 
-### Instruction-Level Tracing
-Use the `log_step` Host import to see every opcode execution.
-
-```elixir
-# In Runner.ex
-fn _ctx, tick, pc, opcode ->
-  IO.puts(:stderr, "Zorb: Step #{tick}: PC=0x#{Integer.to_string(pc, 16)} Op=0x#{Integer.to_string(opcode, 16)}")
-end
-```
-
 ### Identifying Infinite Loops
 Use prime-numbered sampling (e.g., every 719 steps) to detect patterns without syncing with the loop period.
 
