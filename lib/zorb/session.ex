@@ -239,17 +239,14 @@ defmodule Zorb.Session do
   defp run_loop(instance, session_pid, timeout) do
     case Wasmex.call_function(instance, "run_steps", [1000], timeout) do
       {:ok, [0]} ->
-        Logger.debug("Zorb Session: 1000 steps executed")
         run_loop(instance, session_pid, timeout)
 
       {:ok, [1]} ->
-        Logger.debug("Zorb Session: run_steps reported halt, stopping task.")
         :ok
 
       {:error, reason} ->
         case reason do
           "Function execution timed out" ->
-            Logger.debug("Zorb Session: run_steps timed out, resuming...")
             run_loop(instance, session_pid, timeout)
 
           _ ->
@@ -267,7 +264,6 @@ defmodule Zorb.Session do
         "print_char" =>
           {:fn, [:i32], [],
            fn _ctx, char ->
-             Logger.debug("Zorb Session: print_char(#{char})")
              send(session_pid, {:zorb_output, char})
              nil
            end},
@@ -280,8 +276,6 @@ defmodule Zorb.Session do
         "read_char" =>
           {:fn, [], [:i32],
            fn _ctx ->
-             Logger.debug("Zorb Session: read_char() called")
-
              try do
                GenServer.call(session_pid, :get_input, :infinity)
              catch
