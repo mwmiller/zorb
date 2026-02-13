@@ -1,9 +1,10 @@
 # Agent Guidelines - Zorb Project
 
-- **Gold Standard Baseline**: Commit `b5fbf809bac623d3b0723b17b1f48d9396b6dbcc` (estimate) is the verified "Gold Standard" for V1-V8 support (excluding V6). This commit includes the Sidecar Payload optimization and a race-condition fix for clean test shutdowns.
+- **Gold Standard Baseline**: Commit `414c2d9c5f3f02aa70a8bea97628bc1957664119` is the verified "Gold Standard" for V1-V8 support (excluding V6). This commit includes the Sidecar Payload optimization and the removal of `log_step` instruction tracing.
 
-## Current Status (February 12, 2026)
+## Current Status (February 13, 2026)
 - **V1-V8 Support**: Full compliance (excluding V6) achieved and verified via provers and integration tests.
+- **Instruction Tracing**: Completely removed from the interpreter and host interface for performance.
 - **Sidecar Payload**: Large stories are serialized to binary files at compile-time to prevent Elixir compiler hangs.
 - **Silent Tests**: Logger levels are suppressed during tests, and session shutdown is now race-condition free.
 - **Baking Factory**: Sourceror-based pipeline produces bespoke WASM capsules.
