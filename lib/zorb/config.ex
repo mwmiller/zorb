@@ -13,7 +13,7 @@ defmodule Zorb.Config do
   end
 
   @doc """
-  Returns the directory for cached WASM/WAT capsules.
+  Returns the directory for cached WASM capsules.
   """
   def cache_dir do
     Application.get_env(:zorb, :cache_dir) ||

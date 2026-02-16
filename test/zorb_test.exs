@@ -7,7 +7,7 @@ defmodule ZorbTest do
   test "compile/2 generates WASM data" do
     wasm = Zorb.compile(@story_path)
     assert is_binary(wasm)
-    assert String.starts_with?(wasm, "(module") or String.starts_with?(wasm, <<0, 97, 115, 109>>)
+    assert String.starts_with?(wasm, <<0, 97, 115, 109>>)
   end
 
   test "run/2 starts a session and produces output" do

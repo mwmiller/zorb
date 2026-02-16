@@ -36,7 +36,7 @@ defmodule Zorb do
   @doc """
   Compiles a Z-machine story file into a WebAssembly Game Capsule.
 
-  Returns the WASM/WAT binary representation of the capsule.
+  Returns the WASM binary representation of the capsule.
 
   ## Options
 

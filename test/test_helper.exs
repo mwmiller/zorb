@@ -37,7 +37,8 @@ defmodule Zorb.TestRuntime do
     imports = Enum.reduce(merged ++ extra, %{}, &add_import/2)
 
     wat = Orb.to_wat(module)
-    {:ok, instance} = Wasmex.start_link(%{bytes: wat, imports: imports})
+    wasm = Watusi.to_wasm(wat)
+    {:ok, instance} = Wasmex.start_link(%{bytes: wasm, imports: imports})
     instance
   end
 

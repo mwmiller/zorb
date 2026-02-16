@@ -51,14 +51,18 @@ defmodule Zorb.Capsule do
         reraise e, __STACKTRACE__
     end
 
-    wat = Orb.to_wat(module_name)
-    File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wat"), wat)
-    wat
+    wasm =
+      module_name
+      |> Orb.to_wat()
+      |> Watusi.to_wasm()
+
+    File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wasm"), wasm)
+    wasm
   end
 
   defp load_from_cache(story_data) do
     hash = :crypto.hash(:sha256, story_data) |> Base.encode16()
-    path = Path.join(Zorb.Config.cache_dir(), "#{hash}.wat")
+    path = Path.join(Zorb.Config.cache_dir(), "#{hash}.wasm")
 
     if File.exists?(path) do
       {:ok, File.read!(path)}
@@ -70,6 +74,6 @@ defmodule Zorb.Capsule do
   defp save_to_cache(story_data, wasm) do
     hash = :crypto.hash(:sha256, story_data) |> Base.encode16()
     File.mkdir_p!(Zorb.Config.cache_dir())
-    File.write!(Path.join(Zorb.Config.cache_dir(), "#{hash}.wat"), wasm)
+    File.write!(Path.join(Zorb.Config.cache_dir(), "#{hash}.wasm"), wasm)
   end
 end
