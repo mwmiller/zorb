@@ -45,10 +45,32 @@ Send input to the session PID using `Zorb.Session.send_input/2`.
 Zorb.Session.send_input(session_pid, "open mailbox\n")
 ```
 
-### Save and Restore
+### External State Management (New)
+You can trigger save and restore operations from Elixir, independent of game-loop commands. These return `1` on success and `0` on failure.
+
+```elixir
+# Create a snapshot of the current state
+Zorb.Session.save(session_pid)
+
+# Restore to the last snapshot
+Zorb.Session.restore(session_pid)
+
+# Manage the undo stack
+Zorb.Session.save_undo(session_pid)
+Zorb.Session.restore_undo(session_pid)
+```
+
+### Cache Management
+To clear all compiled capsules and temporary artifacts:
+
+```elixir
+Zorb.clear_cache()
+```
+
+### Save and Restore (In-Game)
 `Zorb.Session` automatically handles the Z-machine `save` and `restore` instructions by storing the game state in the session's memory. This allows players to use the in-game "save" and "restore" commands seamlessly.
 
-### Undo (V5+)
+### Undo (V5+ In-Game)
 `Zorb.Session` maintains a stack of up to 16 previous game states for use with the `undo` command in V5+ stories.
 
 ## Configuration
@@ -63,11 +85,34 @@ config :zorb,
 
 ## Host Interface (Advanced)
 
-If you are implementing your own low-level host instead of using `Zorb.Session`, you must provide the `zio` WASM namespace.
+If you are implementing your own low-level host instead of using `Zorb.Session`, the Game Capsule exports a set of `zio_` prefixed functions.
 
-### Required Interface
+### Exported WASM Interface
 
-The Host **must** provide the following functions:
+All capsules export the following functions:
+
+- `zio_save() -> i32`: Triggers a save.
+- `zio_restore() -> i32`: Triggers a restore.
+- `zio_save_undo() -> i32`: Triggers an undo save.
+- `zio_restore_undo() -> i32`: Triggers an undo restore.
+- `zio_print_char(char: i32)`: Outputs a character.
+- `zio_print_num(num: i32)`: Outputs a number.
+- `zio_read_char() -> i32`: Reads a character.
+- `zio_set_window(id: i32)`: Selects a window.
+- `zio_split_window(lines: i32)`: Splits the screen.
+- `zio_set_cursor(line: i32, col: i32)`: Moves the cursor.
+- `zio_erase_window(id: i32)`: Clears a window.
+- `zio_erase_line(val: i32)`: Erases a line.
+- `zio_set_text_style(style: i32)`: Sets text style.
+- `zio_set_colour(fg: i32, bg: i32)`: Sets colors.
+- `zio_sound_effect(id: i32)`: Plays sound.
+- `zio_get_screen_size() -> i32`: Returns packed size.
+- `zio_get_capabilities() -> i32`: Returns feature bitmask.
+- `zio_halt(reason: i32)`: Terminates the VM.
+
+### Required Imports (The Host Interface)
+
+The Host **must** provide the `zio` namespace with the following functions:
 
 - `print_char(char: i32)`: Outputs a single ZSCII/Unicode character.
 - `print_num(num: i32)`: Outputs a signed 32-bit integer.
@@ -76,41 +121,18 @@ The Host **must** provide the following functions:
 - `get_random_seed() -> i32`: Returns a 32-bit integer to seed the PRNG.
 - `halt(reason: i32, pc: i32, opcode: i32)`: Called on fatal error or `quit`.
 - `sound_effect(number: i32)`: Plays a sound effect (1=High beep, 2=Low beep).
+- `check_interrupt() -> i32`: (New) Polled by WASM to check for Host-triggered save/restore.
+    - `0`: No request.
+    - `1`: Save.
+    - `2`: Restore.
+    - `3`: Save Undo.
+    - `4`: Restore Undo.
 
-### Screen Model Interface (V3-V8)
-
-If the Host signals support via `get_capabilities`, it **must** provide:
-
-- `set_window(window_id: i32)`: Directs output to the specified window (0=Lower, 1=Upper).
-- `split_window(lines: i32)`: Splits the screen; Window 1 occupies the top `lines`.
-- `set_cursor(line: i32, col: i32)`: Moves the cursor (1-indexed).
-- `erase_window(window_id: i32)`: Clears the specified window (-1 for entire screen).
-- `erase_line(value: i32)`: Erases from cursor to end of line.
-- `set_text_style(style: i32)`: Sets bit-mapped text style (Bold, Italic, etc.).
-- `set_colour(foreground: i32, background: i32)`: Sets text colors.
-- `get_screen_size() -> i32`: Returns packed `[height:16, width:16]`.
-
-### Save/Restore Interface
-
-If you are implementing a custom host, you must provide:
-
-- `save(pc, sp, fp, csp, rs) -> i32`: Save the game state and return 1 (success) or 0 (failure).
-- `restore() -> i32`: Restore the game state and return 1 (success) or 0 (failure).
-- `get_restored_pc() -> i32`: Return the PC from the last restored state.
-- `get_restored_sp() -> i32`: Return the SP from the last restored state.
-- `get_restored_fp() -> i32`: Return the FP from the last restored state.
-- `get_restored_csp() -> i32`: Return the CSP from the last restored state.
-- `get_restored_random_state() -> i32`: Return the random state from the last restored state.
-
-### Undo Interface (V5+)
-
-- `save_undo(pc, sp, fp, csp, rs) -> i32`: Save the game state for undo and return 1 (success), 0 (failure), or -1 (not supported).
-- `restore_undo() -> i32`: Restore the game state from the undo stack and return 1 (success) or 0 (failure).
-- `get_undone_pc() -> i32`: Return the PC from the last undone state.
-- `get_undone_sp() -> i32`: Return the SP from the last undone state.
-- `get_undone_fp() -> i32`: Return the FP from the last undone state.
-- `get_undone_csp() -> i32`: Return the CSP from the last undone state.
-- `get_undone_random_state() -> i32`: Return the random state from the last undone state.
+### Triggering External Operations (Custom Host)
+If you are implementing a custom host and wish to trigger a save/restore from outside the Z-machine loop:
+1. When an external trigger occurs, return the corresponding code (1-4) from the next `check_interrupt()` call.
+2. The Game Capsule will then invoke the appropriate ZIO function (`save`, `restore`, etc.).
+3. If the Z-machine is currently waiting for input in `read_char()`, you can return a special character code (`0x101`-`0x104`) from `read_char()` to wake it up and trigger the interrupt immediately.
 
 ### Optional Interface (Capabilities)
 

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-17
+
+### Added
+- **External State Management**: Trigger `save`, `restore`, and `undo` operations directly from the Elixir host using `Zorb.Session.save/1`, etc.
+- **Cooperative Interrupt System**: A new polling mechanism allows the Host to safely perform state snapshots without deadlocking the Z-machine loop.
+- **Comprehensive ZIO Exports**: The Game Capsule now exports all Z-machine system functions with a `zio_` prefix, providing a full control interface for custom Host implementations.
+- **Cache Management**: Added `Zorb.clear_cache/0` to easily purge generated WASM artifacts and temporary payloads.
+
+### Changed
+- Refactored WASM Host imports to use context-aware memory access for improved thread safety.
+- Optimized `Zorb.Session` to handle shutdown race conditions gracefully during test execution.
+
 ## [0.4.0] - 2026-02-17
 
 ### Added

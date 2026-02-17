@@ -39,4 +39,7 @@ defmodule Zorb.Capsule.Host do
   defw(get_undone_fp(), I32)
   defw(get_undone_csp(), I32)
   defw(get_undone_random_state(), I32)
+
+  # Interrupts
+  defw(check_interrupt(), I32)
 end

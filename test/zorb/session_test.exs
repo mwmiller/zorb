@@ -83,4 +83,25 @@ defmodule Zorb.SessionTest do
 
     GenServer.stop(pid)
   end
+
+  test "handles external save and restore with zork1.z1" do
+    prover_path = Path.join(@prover_dir, "zork1.z1")
+    {:ok, pid} = Session.start_link(prover_path, notify_to: self(), cache: true)
+
+    expect(~r/West of House/i, 120_000, pid)
+
+    # Save initial state
+    assert 1 == Session.save(pid)
+
+    Session.send_input(pid, "north\n")
+    expect(~r/North of House/i, 120_000, pid)
+
+    assert 1 == Session.restore(pid)
+
+    # After restore, we should be back at West of House
+    Session.send_input(pid, "look\n")
+    expect(~r/West of House/i, 120_000, pid)
+
+    GenServer.stop(pid)
+  end
 end

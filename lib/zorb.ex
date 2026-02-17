@@ -52,4 +52,11 @@ defmodule Zorb do
   def compile(story_path, opts \\ []) do
     Zorb.Capsule.compile(story_path, opts)
   end
+
+  @doc """
+  Clears all cached WASM capsules and temporary artifacts.
+  """
+  def clear_cache do
+    Zorb.Config.clear_cache()
+  end
 end

@@ -34,4 +34,12 @@ defmodule Zorb.Config do
     File.mkdir_p!(working_dir())
     File.mkdir_p!(cache_dir())
   end
+
+  @doc """
+  Clears all cached WASM capsules and temporary artifacts.
+  """
+  def clear_cache do
+    File.rm_rf!(working_dir())
+    ensure_dirs!()
+  end
 end

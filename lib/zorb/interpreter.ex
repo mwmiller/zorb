@@ -978,7 +978,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x16) do
-      fetch_result_and_store(unicode_to_zscii(Host.read_char()))
+      fetch_result_and_store(unicode_to_zscii(get_char_with_interrupts()))
       return()
     end
 
@@ -2032,7 +2032,7 @@ defmodule Zorb.Interpreter do
 
     Control.block ILoopBlock do
       loop ILoop do
-        char = unicode_to_zscii(Host.read_char())
+        char = unicode_to_zscii(get_char_with_interrupts())
 
         if I32.eq(char, 13) do
           ILoopBlock.break()
@@ -2231,6 +2231,11 @@ defmodule Zorb.Interpreter do
     o8: I32,
     m: I32 do
     @tick = I32.add(@tick, 1)
+
+    if I32.eq(I32.band(@tick, 0xFF), 0) do
+      handle_interrupts()
+    end
+
     b = fetch_byte()
 
     if I32.eq(I32.band(b, 0xC0), 0xC0) do
@@ -2395,6 +2400,178 @@ defmodule Zorb.Interpreter do
     I32.add(I32.shl(addr, @packed_address_shift), @string_offset)
   end
 
+  # --- Host Interface (Exports) ---
+
+  defw zio_save(), I32 do
+    Host.save(@pc, @sp, @fp, @csp, @random_state)
+  end
+
+  defw zio_restore(), I32 do
+    if Host.restore() do
+      @pc = Host.get_restored_pc()
+      @sp = Host.get_restored_sp()
+      @fp = Host.get_restored_fp()
+      @csp = Host.get_restored_csp()
+      @random_state = Host.get_restored_random_state()
+      return(I32.const(1))
+    end
+
+    I32.const(0)
+  end
+
+  defw zio_save_undo(), I32 do
+    if I32.ge_u(@version, 5) do
+      return(Host.save_undo(@pc, @sp, @fp, @csp, @random_state))
+    end
+
+    I32.const(-1)
+  end
+
+  defw zio_restore_undo(), I32 do
+    if I32.ge_u(@version, 5) do
+      if Host.restore_undo() do
+        @pc = Host.get_undone_pc()
+        @sp = Host.get_undone_sp()
+        @fp = Host.get_undone_fp()
+        @csp = Host.get_undone_csp()
+        @random_state = Host.get_undone_random_state()
+        return(I32.const(1))
+      end
+    end
+
+    I32.const(0)
+  end
+
+  defw zio_print_char(char: I32) do
+    print_char_wasm(char)
+  end
+
+  defw zio_print_num(num: I32) do
+    print_number(num)
+  end
+
+  defw zio_read_char(), I32 do
+    unicode_to_zscii(get_char_with_interrupts())
+  end
+
+  defw zio_set_window(window_id: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.set_window(window_id)
+    end
+  end
+
+  defw zio_split_window(lines: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.split_window(lines)
+    end
+  end
+
+  defw zio_set_cursor(line: I32, col: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.set_cursor(line, col)
+    end
+  end
+
+  defw zio_erase_window(window_id: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.erase_window(window_id)
+    end
+  end
+
+  defw zio_erase_line(value: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.erase_line(value)
+    end
+  end
+
+  defw zio_set_text_style(style: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.set_text_style(style)
+    end
+  end
+
+  defw zio_set_colour(foreground: I32, background: I32) do
+    if I32.ge_u(@version, 5) do
+      Host.set_colour(foreground, background)
+    end
+  end
+
+  defw zio_sound_effect(number: I32) do
+    if I32.ge_u(@version, 3) do
+      Host.sound_effect(number)
+    end
+  end
+
+  defw zio_get_screen_size(), I32 do
+    if I32.ge_u(@version, 3) do
+      return(Host.get_screen_size())
+    end
+
+    I32.const(0)
+  end
+
+  defw zio_get_capabilities(), I32 do
+    Host.get_capabilities()
+  end
+
+  defw zio_get_random(max: I32), I32 do
+    Host.get_random(max)
+  end
+
+  defw zio_get_random_seed(), I32 do
+    Host.get_random_seed()
+  end
+
+  defw zio_log_zchar(alph: I32, zchar: I32, zscii: I32) do
+    Host.log_zchar(alph, zchar, zscii)
+  end
+
+  defw zio_halt(reason: I32) do
+    halt(reason, @pc, 0)
+  end
+
+  defw handle_interrupts(), i: I32 do
+    i = Host.check_interrupt()
+
+    if I32.ne(i, I32.const(0)) do
+      if I32.eq(i, I32.const(1)), do: drop_i32(zio_save())
+      if I32.eq(i, I32.const(2)), do: drop_i32(zio_restore())
+      if I32.eq(i, I32.const(3)), do: drop_i32(zio_save_undo())
+      if I32.eq(i, I32.const(4)), do: drop_i32(zio_restore_undo())
+    end
+  end
+
+  defw get_char_with_interrupts(), I32, char: I32 do
+    loop InterruptLoop do
+      handle_interrupts()
+      char = Host.read_char()
+
+      if I32.eq(char, I32.const(0x101)) do
+        drop_i32(zio_save())
+        InterruptLoop.continue()
+      end
+
+      if I32.eq(char, I32.const(0x102)) do
+        drop_i32(zio_restore())
+        InterruptLoop.continue()
+      end
+
+      if I32.eq(char, I32.const(0x103)) do
+        drop_i32(zio_save_undo())
+        InterruptLoop.continue()
+      end
+
+      if I32.eq(char, I32.const(0x104)) do
+        drop_i32(zio_restore_undo())
+        InterruptLoop.continue()
+      end
+
+      return(char)
+    end
+
+    I32.const(0)
+  end
+
   defw init(), addr: T.Address, ofp: I32, lc: I32 do
     @version = read_byte(0)
     @globals_base = read_word(0x0C)
@@ -2525,8 +2702,24 @@ defmodule Zorb.Interpreter do
     @fp
   end
 
+  defw set_fp(nfp: I32) do
+    @fp = nfp
+  end
+
   defw get_csp(), I32 do
     @csp
+  end
+
+  defw set_csp(ncsp: I32) do
+    @csp = ncsp
+  end
+
+  defw get_state_rs(), I32 do
+    @random_state
+  end
+
+  defw set_state_rs(nrs: I32) do
+    @random_state = nrs
   end
 
   Memory.initial_data!(
