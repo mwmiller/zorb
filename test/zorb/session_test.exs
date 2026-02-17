@@ -11,7 +11,7 @@ defmodule Zorb.SessionTest do
     prover_path = Path.join(@prover_dir, "zil_test.z3")
 
     # Start session, notify us
-    {:ok, pid} = Session.start_link(prover_path, notify_to: self())
+    {:ok, pid} = Session.start_link(prover_path, notify_to: self(), cache: true)
 
     # Should print the initial room
     expect(~r/A TEST FILE/i, 120_000, pid)
@@ -38,7 +38,7 @@ defmodule Zorb.SessionTest do
   test "handles halt correctly with czech" do
     prover_path = Path.join(@prover_dir, "czech.z5")
 
-    {:ok, pid} = Session.start_link(prover_path, notify_to: self())
+    {:ok, pid} = Session.start_link(prover_path, notify_to: self(), cache: true)
     ref = Process.monitor(pid)
 
     # Should print header
@@ -52,5 +52,35 @@ defmodule Zorb.SessionTest do
     after
       5000 -> :ok
     end
+  end
+
+  test "handles save and restore with zil_test" do
+    prover_path = Path.join(@prover_dir, "zil_test.z3")
+    {:ok, pid} = Session.start_link(prover_path, notify_to: self(), cache: true)
+
+    expect(~r/TESTING LAB/i, 120_000, pid)
+
+    Session.send_input(pid, "save\n")
+    expect(~r/>/i, 120_000, pid)
+
+    Session.send_input(pid, "restore\n")
+    expect(~r/>/i, 120_000, pid)
+
+    GenServer.stop(pid)
+  end
+
+  test "handles undo with etude.z5" do
+    prover_path = Path.join(@prover_dir, "etude.z5")
+    {:ok, pid} = Session.start_link(prover_path, notify_to: self(), cache: true)
+
+    expect(~r/ETUDE/i, 120_000, pid)
+
+    # Some V5+ games use 'undo'
+    Session.send_input(pid, "undo\n")
+    # If not supported by the game logic, it might say "Undo is not provided"
+    # but we just want to ensure the opcode works and host doesn't crash.
+    expect(~r/>/i, 120_000, pid)
+
+    GenServer.stop(pid)
   end
 end

@@ -45,6 +45,12 @@ Send input to the session PID using `Zorb.Session.send_input/2`.
 Zorb.Session.send_input(session_pid, "open mailbox\n")
 ```
 
+### Save and Restore
+`Zorb.Session` automatically handles the Z-machine `save` and `restore` instructions by storing the game state in the session's memory. This allows players to use the in-game "save" and "restore" commands seamlessly.
+
+### Undo (V5+)
+`Zorb.Session` maintains a stack of up to 16 previous game states for use with the `undo` command in V5+ stories.
+
 ## Configuration
 
 You can configure Zorb in your `config/config.exs`:
@@ -83,6 +89,28 @@ If the Host signals support via `get_capabilities`, it **must** provide:
 - `set_text_style(style: i32)`: Sets bit-mapped text style (Bold, Italic, etc.).
 - `set_colour(foreground: i32, background: i32)`: Sets text colors.
 - `get_screen_size() -> i32`: Returns packed `[height:16, width:16]`.
+
+### Save/Restore Interface
+
+If you are implementing a custom host, you must provide:
+
+- `save(pc, sp, fp, csp, rs) -> i32`: Save the game state and return 1 (success) or 0 (failure).
+- `restore() -> i32`: Restore the game state and return 1 (success) or 0 (failure).
+- `get_restored_pc() -> i32`: Return the PC from the last restored state.
+- `get_restored_sp() -> i32`: Return the SP from the last restored state.
+- `get_restored_fp() -> i32`: Return the FP from the last restored state.
+- `get_restored_csp() -> i32`: Return the CSP from the last restored state.
+- `get_restored_random_state() -> i32`: Return the random state from the last restored state.
+
+### Undo Interface (V5+)
+
+- `save_undo(pc, sp, fp, csp, rs) -> i32`: Save the game state for undo and return 1 (success), 0 (failure), or -1 (not supported).
+- `restore_undo() -> i32`: Restore the game state from the undo stack and return 1 (success) or 0 (failure).
+- `get_undone_pc() -> i32`: Return the PC from the last undone state.
+- `get_undone_sp() -> i32`: Return the SP from the last undone state.
+- `get_undone_fp() -> i32`: Return the FP from the last undone state.
+- `get_undone_csp() -> i32`: Return the CSP from the last undone state.
+- `get_undone_random_state() -> i32`: Return the random state from the last undone state.
 
 ### Optional Interface (Capabilities)
 

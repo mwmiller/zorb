@@ -3,6 +3,7 @@ defmodule Zorb.Interpreter do
   use Orb
 
   require Zorb.Interpreter.Types
+  alias Zorb.Capsule.Host
   alias Zorb.Interpreter.Types, as: T
 
   Memory.pages(16)
@@ -194,9 +195,8 @@ defmodule Zorb.Interpreter do
     @tick 0
   end
 
-  # credo:disable-for-next-line Credo.Check.Design.TagTODO
-  # TODO: Implement hash table lookup at 0x82000 (requires baking phase support)
-  # For now, these are stubs that return 0
+  # ldict and mdict are stubs that are replaced with story-specific
+  # hash table lookup implementations by the Capsule Assembler.
   defw ldict(w1: I32, w2: I32, w3: I32), T.Address do
     return(I32.const(0))
   end
@@ -228,8 +228,7 @@ defmodule Zorb.Interpreter do
 
   defw halt(reason: I32, pc: I32, opcode: I32) do
     @halted = I32.const(1)
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    Zorb.Capsule.Host.halt(reason, pc, opcode)
+    Host.halt(reason, pc, opcode)
   end
 
   defwp fetch_var_ref_operand(type: I32), I32 do
@@ -698,6 +697,72 @@ defmodule Zorb.Interpreter do
       return()
     end
 
+    if I32.eq(opc, 0x05) do
+      # save
+
+      if I32.le_u(@version, 3) do
+        fetch_branch(Host.save(@pc, @sp, @fp, @csp, @random_state))
+      else
+        if I32.eq(@version, 4) do
+          fetch_result_and_store(Host.save(@pc, @sp, @fp, @csp, @random_state))
+        else
+          halt(3, @pc, 181)
+        end
+      end
+
+      return()
+    end
+
+    if I32.eq(opc, 0x06) do
+      # restore
+
+      if I32.le_u(@version, 3) do
+        if Host.restore() do
+          @pc = Host.get_restored_pc()
+
+          @sp = Host.get_restored_sp()
+
+          @fp = Host.get_restored_fp()
+
+          @csp = Host.get_restored_csp()
+
+          @random_state = Host.get_restored_random_state()
+
+          # We don't branch here because restore jumps back to the save's branch in most V3 interpreters,
+
+          # but the spec says "returns 1 if successful".
+
+          # Actually, Spec 14.3 says for V3: "branches if successful".
+
+          fetch_branch(1)
+        else
+          fetch_branch(0)
+        end
+      else
+        if I32.eq(@version, 4) do
+          if Host.restore() do
+            @pc = Host.get_restored_pc()
+
+            @sp = Host.get_restored_sp()
+
+            @fp = Host.get_restored_fp()
+
+            @csp = Host.get_restored_csp()
+
+            @random_state = Host.get_restored_random_state()
+
+            fetch_result_and_store(1)
+          else
+            fetch_result_and_store(0)
+          end
+        else
+          halt(3, @pc, 182)
+        end
+      end
+
+      return()
+    end
+
     if I32.eq(opc, 0x08) do
       do_return(pop_stack())
       return()
@@ -801,7 +866,6 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x04) do
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
       val = read_input(o1)
 
       if I32.ne(o2, 0) do
@@ -843,15 +907,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x0A) do
       # split_window
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.split_window(o1)
+      Host.split_window(o1)
       return()
     end
 
     if I32.eq(opc, 0x0B) do
       # set_window
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.set_window(o1)
+      Host.set_window(o1)
       return()
     end
 
@@ -876,15 +938,13 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x0D) do
       # erase_window
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.erase_window(o1)
+      Host.erase_window(o1)
       return()
     end
 
     if I32.eq(opc, 0x0E) do
       # erase_line
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.erase_line(o1)
+      Host.erase_line(o1)
       return()
     end
 
@@ -895,15 +955,13 @@ defmodule Zorb.Interpreter do
         return()
       end
 
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.set_cursor(o1, o2)
+      Host.set_cursor(o1, o2)
       return()
     end
 
     if I32.eq(opc, 0x11) do
       # set_text_style
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      Zorb.Capsule.Host.set_text_style(o1)
+      Host.set_text_style(o1)
       return()
     end
 
@@ -920,8 +978,7 @@ defmodule Zorb.Interpreter do
     end
 
     if I32.eq(opc, 0x16) do
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      fetch_result_and_store(unicode_to_zscii(Zorb.Capsule.Host.read_char()))
+      fetch_result_and_store(unicode_to_zscii(Host.read_char()))
       return()
     end
 
@@ -998,21 +1055,29 @@ defmodule Zorb.Interpreter do
   defw execute_ext(opc: I32, o1: I32, o2: I32, o3: I32, o4: I32) do
     if I32.eq(opc, 0x00) do
       # save (V5)
-      fetch_result_and_store(0)
+
+      fetch_result_and_store(Host.save(@pc, @sp, @fp, @csp, @random_state))
+
       return()
     end
 
     if I32.eq(opc, 0x01) do
       # restore (V5)
-      fetch_result_and_store(0)
-      return()
-    end
 
-    if I32.eq(opc, 0x02) do
-      if I32.gt_s(sign_extend_16(o2), 0) do
-        fetch_result_and_store(I32.shl(o1, sign_extend_16(o2)))
+      if Host.restore() do
+        @pc = Host.get_restored_pc()
+
+        @sp = Host.get_restored_sp()
+
+        @fp = Host.get_restored_fp()
+
+        @csp = Host.get_restored_csp()
+
+        @random_state = Host.get_restored_random_state()
+
+        fetch_result_and_store(1)
       else
-        fetch_result_and_store(I32.shr_u(I32.band(o1, 0xFFFF), I32.sub(0, sign_extend_16(o2))))
+        fetch_result_and_store(0)
       end
 
       return()
@@ -1022,7 +1087,7 @@ defmodule Zorb.Interpreter do
       if I32.gt_s(sign_extend_16(o2), 0) do
         fetch_result_and_store(I32.shl(o1, sign_extend_16(o2)))
       else
-        fetch_result_and_store(I32.shr_s(sign_extend_16(o1), I32.sub(0, sign_extend_16(o2))))
+        fetch_result_and_store(I32.shr_u(I32.band(o1, 0xFFFF), I32.sub(0, sign_extend_16(o2))))
       end
 
       return()
@@ -1040,6 +1105,28 @@ defmodule Zorb.Interpreter do
 
     if I32.eq(opc, 0x04) do
       do_set_font(o1)
+      return()
+    end
+
+    if I32.eq(opc, 0x09) do
+      # save_undo
+      fetch_result_and_store(Host.save_undo(@pc, @sp, @fp, @csp, @random_state))
+      return()
+    end
+
+    if I32.eq(opc, 0x0A) do
+      # restore_undo
+      if Host.restore_undo() do
+        @pc = Host.get_undone_pc()
+        @sp = Host.get_undone_sp()
+        @fp = Host.get_undone_fp()
+        @csp = Host.get_undone_csp()
+        @random_state = Host.get_undone_random_state()
+        fetch_result_and_store(1)
+      else
+        fetch_result_and_store(0)
+      end
+
       return()
     end
 
@@ -1295,8 +1382,7 @@ defmodule Zorb.Interpreter do
       return()
     end
 
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    Zorb.Capsule.Host.print_char(char)
+    Host.print_char(char)
   end
 
   defw do_output_stream(s: I32, addr: T.Address) do
@@ -1659,8 +1745,7 @@ defmodule Zorb.Interpreter do
 
       # All alphabets use zchars 6-31 (offset by 6)
       b = read_byte(I32.add(table_addr, I32.sub(zchar, 6)))
-      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-      # Zorb.Capsule.Host.log_zchar(alph, zchar, b)
+      # Host.log_zchar(alph, zchar, b)
       print_char_wasm(zscii_to_unicode(b))
 
       @next_alphabet = -1
@@ -1947,8 +2032,7 @@ defmodule Zorb.Interpreter do
 
     Control.block ILoopBlock do
       loop ILoop do
-        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-        char = unicode_to_zscii(Zorb.Capsule.Host.read_char())
+        char = unicode_to_zscii(Host.read_char())
 
         if I32.eq(char, 13) do
           ILoopBlock.break()
@@ -2054,13 +2138,11 @@ defmodule Zorb.Interpreter do
   end
 
   defw do_set_colour(fg: I32, bg: I32) do
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    Zorb.Capsule.Host.set_colour(fg, bg)
+    Host.set_colour(fg, bg)
   end
 
   defw do_sound_effect(number: I32) do
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    Zorb.Capsule.Host.sound_effect(number)
+    Host.sound_effect(number)
   end
 
   defw do_copy_table(src: T.Address, dest: T.Address, len: I32), i: I32 do
@@ -2327,8 +2409,7 @@ defmodule Zorb.Interpreter do
     @current_font = 1
     @current_alphabet = 0
     @next_alphabet = -1
-    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-    @capabilities = Zorb.Capsule.Host.get_capabilities()
+    @capabilities = Host.get_capabilities()
 
     if I32.ge_u(@version, 4) do
       # Spec 11.1.2: Flags 2 at offset 0x10

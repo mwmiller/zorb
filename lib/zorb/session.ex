@@ -8,11 +8,14 @@ defmodule Zorb.Session do
 
   use GenServer
   require Logger
+  import Bitwise
 
   defmodule State do
     @moduledoc false
     defstruct [
       :instance,
+      :mem,
+      :store,
       :input_buffer,
       :waiting_input,
       :notify_to,
@@ -20,7 +23,10 @@ defmodule Zorb.Session do
       :last_char,
       :current_window,
       :task,
-      :timeout
+      :timeout,
+      :saved_state,
+      :undo_stack,
+      :last_undone
     ]
   end
 
@@ -105,32 +111,41 @@ defmodule Zorb.Session do
   end
 
   defp initialize_instance(instance, notify_to, timeout) do
-    case Wasmex.call_function(instance, "init", [], timeout) do
-      {:ok, _} ->
-        state = %State{
-          instance: instance,
-          input_buffer: [],
-          waiting_input: nil,
-          notify_to: notify_to,
-          halted: false,
-          last_char: nil,
-          current_window: 0,
-          timeout: timeout
-        }
+    with {:ok, _} <- Wasmex.call_function(instance, "init", [], timeout),
+         {:ok, mem} <- Wasmex.memory(instance),
+         {:ok, store} <- Wasmex.store(instance) do
+      state = %State{
+        instance: instance,
+        mem: mem,
+        store: store,
+        input_buffer: [],
+        waiting_input: nil,
+        notify_to: notify_to,
+        halted: false,
+        last_char: nil,
+        current_window: 0,
+        timeout: timeout,
+        undo_stack: [],
+        last_undone: nil
+      }
 
-        # Start the WASM loop in a separate Task
-        session_pid = self()
+      # Start the WASM loop in a separate Task
+      session_pid = self()
 
-        task =
-          Task.async(fn ->
-            run_loop(instance, session_pid, timeout)
-          end)
+      task =
+        Task.async(fn ->
+          run_loop(instance, session_pid, timeout)
+        end)
 
-        {:ok, %{state | task: task}}
-
+      {:ok, %{state | task: task}}
+    else
       {:error, reason} ->
         Logger.error("Zorb Session: WASM init failed: #{inspect(reason)}")
         {:stop, reason}
+
+      _ ->
+        Logger.error("Zorb Session: Failed to get memory or store")
+        {:stop, :missing_memory}
     end
   end
 
@@ -149,6 +164,155 @@ defmodule Zorb.Session do
 
       [] ->
         {:noreply, %{state | waiting_input: from}}
+    end
+  end
+
+  @doc false
+  @impl true
+  def handle_call({:save, pc, sp, fp, csp, rs}, _from, state) do
+    mem = state.mem
+    store = state.store
+
+    # Read dynamic memory size from header (offset 0x0E)
+    header_bytes = Wasmex.Memory.read_binary(store, mem, 0x0E, 2)
+    <<static_base::16>> = header_bytes
+
+    # Dynamic memory: [0, static_base)
+    dynamic_mem = Wasmex.Memory.read_binary(store, mem, 0, static_base)
+
+    # Z-stack: [0x90000, sp)
+    # sp is the number of words from the base (0x90000)
+    # Each word is 2 bytes.
+    stack = Wasmex.Memory.read_binary(store, mem, 0x90000, sp * 2)
+
+    # Call stack: [0x98000, csp)
+    # csp is the number of words from the base (0x98000)
+    call_stack = Wasmex.Memory.read_binary(store, mem, 0x98000, csp * 2)
+
+    saved_state = %{
+      dynamic_mem: dynamic_mem,
+      stack: stack,
+      call_stack: call_stack,
+      pc: pc,
+      sp: sp,
+      fp: fp,
+      csp: csp,
+      rs: rs
+    }
+
+    {:reply, 1, %{state | saved_state: saved_state}}
+  end
+
+  @doc false
+  @impl true
+  def handle_call(:restore, _from, state) do
+    case state.saved_state do
+      nil ->
+        {:reply, 0, state}
+
+      saved ->
+        mem = state.mem
+        store = state.store
+
+        Wasmex.Memory.write_binary(store, mem, 0, saved.dynamic_mem)
+        Wasmex.Memory.write_binary(store, mem, 0x90000, saved.stack)
+        Wasmex.Memory.write_binary(store, mem, 0x98000, saved.call_stack)
+        {:reply, 1, state}
+    end
+  end
+
+  @doc false
+  @impl true
+  def handle_call({:get_restored, type}, _from, state) do
+    case state.saved_state do
+      nil ->
+        {:reply, 0, state}
+
+      saved ->
+        val =
+          case type do
+            :pc -> saved.pc
+            :sp -> saved.sp
+            :fp -> saved.fp
+            :csp -> saved.csp
+            :rs -> saved.rs
+          end
+
+        {:reply, val, state}
+    end
+  end
+
+  @doc false
+  @impl true
+  def handle_call({:save_undo, pc, sp, fp, csp, rs}, _from, state) do
+    mem = state.mem
+    store = state.store
+
+    header_bytes = Wasmex.Memory.read_binary(store, mem, 0x0E, 2)
+    <<static_base::16>> = header_bytes
+
+    dynamic_mem = Wasmex.Memory.read_binary(store, mem, 0, static_base)
+    stack = Wasmex.Memory.read_binary(store, mem, 0x90000, sp * 2)
+    call_stack = Wasmex.Memory.read_binary(store, mem, 0x98000, csp * 2)
+
+    new_undo = %{
+      dynamic_mem: dynamic_mem,
+      stack: stack,
+      call_stack: call_stack,
+      pc: pc,
+      sp: sp,
+      fp: fp,
+      csp: csp,
+      rs: rs
+    }
+
+    # Keep only the last 16 undo levels
+    new_stack = [new_undo | state.undo_stack] |> Enum.take(16)
+
+    {:reply, 1, %{state | undo_stack: new_stack}}
+  end
+
+  @doc false
+  @impl true
+  def handle_call(:restore_undo, _from, state) do
+    case state.undo_stack do
+      [] ->
+        {:reply, 0, state}
+
+      [undone | rest] ->
+        mem = state.mem
+        store = state.store
+
+        Wasmex.Memory.write_binary(store, mem, 0, undone.dynamic_mem)
+        Wasmex.Memory.write_binary(store, mem, 0x90000, undone.stack)
+        Wasmex.Memory.write_binary(store, mem, 0x98000, undone.call_stack)
+
+        # We keep the restored state in a temporary field so getters can access it
+        # Actually, let's just use the restored state directly.
+        # But we need a way to return the values to the WASM.
+        # We can store the "last undone" state in the GenServer state.
+        {:reply, 1, %{state | undo_stack: rest, last_undone: undone}}
+    end
+  end
+
+  @doc false
+  @impl true
+  def handle_call({:get_undone, type}, _from, state) do
+    case state.last_undone do
+      nil ->
+        {:reply, 0, state}
+
+      undone ->
+        val =
+          case type do
+            :pc -> undone.pc
+            :sp -> undone.sp
+            :fp -> undone.fp
+            :csp -> undone.csp
+            :rs -> undone.rs
+          end
+
+        {:reply, val, state}
     end
   end
 
@@ -357,9 +521,48 @@ defmodule Zorb.Session do
         "get_screen_size" =>
           {:fn, [], [:i32],
            fn _ctx ->
-             import Bitwise
              24 <<< 16 ||| 80
-           end}
+           end},
+        "save" =>
+          {:fn, [:i32, :i32, :i32, :i32, :i32], [:i32],
+           fn _ctx, pc, sp, fp, csp, rs ->
+             GenServer.call(session_pid, {:save, pc, sp, fp, csp, rs}, :infinity)
+           end},
+        "restore" =>
+          {:fn, [], [:i32],
+           fn _ctx ->
+             GenServer.call(session_pid, :restore, :infinity)
+           end},
+        "get_restored_pc" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_restored, :pc}) end},
+        "get_restored_sp" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_restored, :sp}) end},
+        "get_restored_fp" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_restored, :fp}) end},
+        "get_restored_csp" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_restored, :csp}) end},
+        "get_restored_random_state" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_restored, :rs}) end},
+        "save_undo" =>
+          {:fn, [:i32, :i32, :i32, :i32, :i32], [:i32],
+           fn _ctx, pc, sp, fp, csp, rs ->
+             GenServer.call(session_pid, {:save_undo, pc, sp, fp, csp, rs}, :infinity)
+           end},
+        "restore_undo" =>
+          {:fn, [], [:i32],
+           fn _ctx ->
+             GenServer.call(session_pid, :restore_undo, :infinity)
+           end},
+        "get_undone_pc" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_undone, :pc}) end},
+        "get_undone_sp" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_undone, :sp}) end},
+        "get_undone_fp" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_undone, :fp}) end},
+        "get_undone_csp" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_undone, :csp}) end},
+        "get_undone_random_state" =>
+          {:fn, [], [:i32], fn _ctx -> GenServer.call(session_pid, {:get_undone, :rs}) end}
       }
     }
   end

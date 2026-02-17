@@ -80,6 +80,65 @@ Sets the text colors.
 ### `get_screen_size() -> i32`
 Returns the current dimensions of the host display as a packed 32-bit integer: `[height:16, width:16]`.
 
+## Save/Restore Interface
+
+The following functions are used to implement the Z-machine `save` and `restore` instructions.
+
+### `save(pc: i32, sp: i32, fp: i32, csp: i32, random_state: i32) -> i32`
+Requests the Host to save the current state.
+- `pc`: Current Program Counter.
+- `sp`: Current Stack Pointer (word count).
+- `fp`: Current Frame Pointer (word count).
+- `csp`: Current Call Stack Pointer (word count).
+- `random_state`: Current PRNG state.
+Returns `1` if the save was successful, `0` otherwise.
+
+### `restore() -> i32`
+Requests the Host to restore a previously saved state.
+Returns `1` if a state was successfully restored, `0` otherwise.
+
+### `get_restored_pc() -> i32`
+Returns the `pc` from the last successful `restore()`.
+
+### `get_restored_sp() -> i32`
+Returns the `sp` from the last successful `restore()`.
+
+### `get_restored_fp() -> i32`
+Returns the `fp` from the last successful `restore()`.
+
+### `get_restored_csp() -> i32`
+Returns the `csp` from the last successful `restore()`.
+
+### `get_restored_random_state() -> i32`
+Returns the `random_state` from the last successful `restore()`.
+
+## Undo Interface
+
+The following functions are used to implement the Z-machine `save_undo` and `restore_undo` instructions (V5+).
+
+### `save_undo(pc: i32, sp: i32, fp: i32, csp: i32, random_state: i32) -> i32`
+Requests the Host to save the current state for a future undo.
+Returns `1` if successful, `0` otherwise, and `-1` if not supported.
+
+### `restore_undo() -> i32`
+Requests the Host to restore the last state saved via `save_undo`.
+Returns `1` if successful, `0` otherwise.
+
+### `get_undone_pc() -> i32`
+Returns the `pc` from the last successful `restore_undo()`.
+
+### `get_undone_sp() -> i32`
+Returns the `sp` from the last successful `restore_undo()`.
+
+### `get_undone_fp() -> i32`
+Returns the `fp` from the last successful `restore_undo()`.
+
+### `get_undone_csp() -> i32`
+Returns the `csp` from the last successful `restore_undo()`.
+
+### `get_undone_random_state() -> i32`
+Returns the `random_state` from the last successful `restore_undo()`.
+
 ## Optional Interface (Capabilities)
 
 The Host can signal support for optional features. The Capsule checks these via the following host import:

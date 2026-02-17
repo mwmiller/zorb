@@ -21,4 +21,22 @@ defmodule Zorb.Capsule.Host do
   defw(set_colour(foreground: I32, background: I32))
   defw(sound_effect(number: I32))
   defw(get_screen_size(), I32)
+
+  # Save/Restore
+  defw(save(pc: I32, sp: I32, fp: I32, csp: I32, random_state: I32), I32)
+  defw(restore(), I32)
+  defw(get_restored_pc(), I32)
+  defw(get_restored_sp(), I32)
+  defw(get_restored_fp(), I32)
+  defw(get_restored_csp(), I32)
+  defw(get_restored_random_state(), I32)
+
+  # Undo
+  defw(save_undo(pc: I32, sp: I32, fp: I32, csp: I32, random_state: I32), I32)
+  defw(restore_undo(), I32)
+  defw(get_undone_pc(), I32)
+  defw(get_undone_sp(), I32)
+  defw(get_undone_fp(), I32)
+  defw(get_undone_csp(), I32)
+  defw(get_undone_random_state(), I32)
 end
