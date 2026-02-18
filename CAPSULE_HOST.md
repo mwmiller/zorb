@@ -36,6 +36,14 @@ Plays a sound effect.
 - `2`: Low-pitched bleep.
 - `3+`: Story-defined sound effect ID.
 
+### `check_interrupt() -> i32`
+Polled by the WASM capsule to check for Host-triggered save/restore or undo requests. This allows the Host to signal state management operations asynchronously, even while the Z-machine is waiting for input.
+- `0`: No request.
+- `1`: Save.
+- `2`: Restore.
+- `3`: Save Undo.
+- `4`: Restore Undo.
+
 ## Screen Model Interface (V3-V8)
 
 The following functions are used to implement the Z-machine screen model (Spec 8). If the Host signals support via `get_capabilities`, it **must** provide these:

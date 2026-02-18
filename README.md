@@ -8,8 +8,8 @@ Zorb transforms classic interactive fiction into modern WebAssembly artifacts.
 
 ### Prerequisites
 - Elixir 1.15+
-- Wasmex (for execution)
 - Orb (for WASM generation)
+- [Watusi](https://hex.pm/packages/watusi) (for binary generation)
 
 ### Installation
 
@@ -18,50 +18,18 @@ Add `zorb` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:zorb, "~> 0.3.0"}
+    {:zorb, "~> 0.6.0"}
   ]
 end
 ```
 
-### Running a Story
+### Compiling a Story
 
-You can run a Z-machine story file (V1-V5, V7-V8) directly from the CLI. First, build the standalone executable:
-
-```bash
-mix escript.build
-```
-
-Then run a story:
-
-```bash
-./zorb_interpreter path/to/your/story.z5 --cache
-```
-
-### Programmatic Usage
-
-To run a story within your own Elixir application:
-
-#### Using Zorb.run/2 (Recommended)
-
-`Zorb.run/2` starts a `Zorb.Session` (a GenServer) that provides a non-blocking, asynchronous interface. It is ideal for use in Phoenix channels or anywhere you need a long-lived, supervised process.
+You can compile a Z-machine story file (V1-V5, V7-V8) into a standalone WebAssembly capsule:
 
 ```elixir
-# Start the session from a story file with caching enabled
-{:ok, session_pid} = Zorb.run("path/to/story.z5", cache: true)
-
-# Listen for messages in your process
-receive do
-  {:zorb_output, char} when is_integer(char) -> 
-    IO.write([char])
-  {:zorb_output, {:cursor, line, col}} -> 
-    # Handle screen model commands
-    :ok
-  {:zorb_halt, reason, pc, _opcode} ->
-    IO.puts("Game halted.")
-end
-
-# Send input to the game
-Zorb.Session.send_input(session_pid, "look\n")
+wasm_bytes = Zorb.compile("path/to/story.z5", cache: true)
+File.write!("story.wasm", wasm_bytes)
 ```
 
 ## Core Architecture: Game Capsules
@@ -70,11 +38,12 @@ Unlike traditional Z-machine interpreters that load and interpret story data at 
 
 - **Bespoke Generation**: Optimized capsules eliminate runtime JIT overhead.
 - **WASM Tokenizer**: High-performance tokenization with O(1) dictionary lookups via baked-in hash tables.
-- **Host Interface**: Standardized `zio` namespace for I/O and system calls.
+- **Host Interface**: Standardized `zio` namespace for I/O and system calls. See [CAPSULE_HOST.md](./CAPSULE_HOST.md) for the full interface.
 
 ## Documentation
 
-- [usage-rules.md](./usage-rules.md): Essential rules and conventions for library consumers, including the WASM host interface.
+- [usage-rules.md](./usage-rules.md): Essential rules and conventions for library consumers.
+- [CAPSULE_HOST.md](./CAPSULE_HOST.md): Complete specification of the WASM Host Interface.
 - [Z-Machine Specification](https://zspec.jaredreisinger.com/): The official Z-machine specification.
 
 ## Development

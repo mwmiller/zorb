@@ -1,63 +1,20 @@
 # Zorb Usage Rules (for Library Consumers)
 
-If you are building an application that uses Zorb to run Z-machine stories, follow these rules and conventions.
+If you are building an application that uses Zorb to compile Z-machine stories, follow these rules and conventions.
 
 ## Core Mandates for Consumers
 
 - **Z-Machine Versions**: Zorb supports Versions 1-5 and 7-8. **Version 6 is not supported.** Ensure your story files match these versions.
-- **Async Communication**: Zorb is asynchronous. Interaction happens via message passing. Your process **must** be prepared to handle a stream of output messages.
+- **WASM Interface**: Zorb generates WASM Game Capsules that follow the `zio` host interface. You must provide a host environment (in Elixir, JavaScript, or another WASM-capable language) to execute these capsules.
 - **Compilation Artifacts**: Zorb generates temporary files (WASM capsules and sidecar payloads). By default, these are in a system temp directory. If your environment (like Heroku or some Docker setups) has a read-only filesystem, you **must** configure `working_dir` to a writable path.
 
 ## Elixir Integration
 
-### Starting a Session
-Use `Zorb.run/2` to start a new game session. This returns `{:ok, pid}` for a GenServer.
+### Compiling a Story
+Use `Zorb.compile/2` to generate a WebAssembly binary.
 
 ```elixir
-# In a Phoenix Channel or LiveView
-{:ok, session_pid} = Zorb.run("path/to/zork1.z3", notify_to: self(), cache: true)
-```
-
-### Handling Game Output
-Your process will receive `{:zorb_output, data}` messages.
-
-- **Characters**: `{:zorb_output, char}` where `char` is an integer (ZSCII/Unicode).
-- **Screen Commands**: `{:zorb_output, {command, ...}}` for advanced rendering:
-    - `{:cursor, line, col}`: Move the cursor.
-    - `{:set_window, window_id}`: Select active window (0=Lower, 1=Upper).
-    - `{:split_window, lines}`: Split screen (Window 1 gets top N lines).
-    - `{:style, style_id}`: Change style (0=Normal, 1=Reverse, 2=Bold, 4=Italic, 8=Fixed).
-    - `{:colour, fg, bg}`: Change colors (1=Def, 2=Blk, 3=Red, 4=Grn, 5=Yel, 6=Blu, 7=Mag, 8=Cyn, 9=Wht).
-    - `{:sound, number}`: Play a sound effect (1=High beep, 2=Low beep).
-    - `{:erase_window, window_id}`: Clear a window.
-    - `{:erase_line, value}`: Erase current line.
-
-### Handling Game Termination
-When the game ends (or crashes), you will receive:
-- `{:zorb_halt, reason, pc, opcode}`
-    - `reason 0`: Normal quit.
-    - `reason > 0`: VM error (e.g., stack overflow).
-
-### Sending Input
-Send input to the session PID using `Zorb.Session.send_input/2`.
-
-```elixir
-Zorb.Session.send_input(session_pid, "open mailbox\n")
-```
-
-### External State Management (New)
-You can trigger save and restore operations from Elixir, independent of game-loop commands. These return `1` on success and `0` on failure.
-
-```elixir
-# Create a snapshot of the current state
-Zorb.Session.save(session_pid)
-
-# Restore to the last snapshot
-Zorb.Session.restore(session_pid)
-
-# Manage the undo stack
-Zorb.Session.save_undo(session_pid)
-Zorb.Session.restore_undo(session_pid)
+wasm_bytes = Zorb.compile("path/to/zork1.z3", cache: true)
 ```
 
 ### Cache Management
@@ -66,12 +23,6 @@ To clear all compiled capsules and temporary artifacts:
 ```elixir
 Zorb.clear_cache()
 ```
-
-### Save and Restore (In-Game)
-`Zorb.Session` automatically handles the Z-machine `save` and `restore` instructions by storing the game state in the session's memory. This allows players to use the in-game "save" and "restore" commands seamlessly.
-
-### Undo (V5+ In-Game)
-`Zorb.Session` maintains a stack of up to 16 previous game states for use with the `undo` command in V5+ stories.
 
 ## Configuration
 
@@ -85,7 +36,7 @@ config :zorb,
 
 ## Host Interface (Advanced)
 
-If you are implementing your own low-level host instead of using `Zorb.Session`, the Game Capsule exports a set of `zio_` prefixed functions.
+Zorb produces Game Capsules that export a set of `zio_` prefixed functions. These can be used to drive the interpreter from a custom Host environment.
 
 ### Exported WASM Interface
 
