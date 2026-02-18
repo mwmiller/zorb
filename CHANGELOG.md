@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2026-02-18
 
 ### Changed
-- **Removed Runners**: `Zorb.Session` and `Zorb.CLI` have been moved to the test suite to eliminate mandatory `wasmex` dependency for end users.
-- **Pure Elixir Focus**: `wasmex` is now an optional dependency, only required for development and testing.
-- **API Simplification**: `Zorb.run/2` has been removed. Use `Zorb.compile/2` to generate WASM capsules.
+- **Removed Runners**: Zorb.Session and Zorb.CLI have been moved to the test suite to eliminate mandatory wasmex dependency for end users.
+- **Pure Elixir Focus**: wasmex is now an optional dependency, only required for development and testing.
+- **API Simplification**: Zorb.run/2 has been removed. Use Zorb.compile/2 to generate WASM capsules.
 
 ## [0.5.1] - 2026-02-18
 

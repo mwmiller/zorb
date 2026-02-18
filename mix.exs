@@ -18,7 +18,11 @@ defmodule Zorb.MixProject do
         main: "Zorb",
         extras: [
           "README.md",
-          "usage-rules.md"
+          "usage-rules.md",
+          "CAPSULE_HOST.md",
+          "CHANGELOG.md",
+          "ORB_CONCEPTS.md",
+          "ZMACHINE.md"
         ]
       ]
     ]
@@ -33,7 +37,8 @@ defmodule Zorb.MixProject do
       maintainers: ["Matthew Miller"],
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/mwmiller/zorb"},
-      files: ~w(lib mix.exs README.md LICENSE usage-rules.md CAPSULE_HOST.md)
+      files:
+        ~w(lib mix.exs README.md LICENSE usage-rules.md CAPSULE_HOST.md CHANGELOG.md ORB_CONCEPTS.md ZMACHINE.md)
     ]
   end
 
