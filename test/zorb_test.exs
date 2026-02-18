@@ -11,7 +11,7 @@ defmodule ZorbTest do
   end
 
   test "run/2 starts a session and produces output" do
-    {:ok, pid} = Zorb.run(@story_path, notify_to: self())
+    {:ok, pid} = Zorb.Session.start_link(@story_path, notify_to: self())
     assert is_pid(pid)
 
     # simple_test.z5 prints "Simple Test" and then a prompt or something.
@@ -26,7 +26,7 @@ defmodule ZorbTest do
     # First run to populate cache
     wasm1 = Zorb.compile(@story_path, cache: true)
 
-    {:ok, pid} = Zorb.run(@story_path, notify_to: self(), cache: true)
+    {:ok, pid} = Zorb.Session.start_link(@story_path, notify_to: self(), cache: true)
     assert is_pid(pid)
     expect(~r/units 0 by 0/i, 10_000, pid)
     GenServer.stop(pid)

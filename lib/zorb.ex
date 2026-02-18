@@ -3,35 +3,8 @@ defmodule Zorb do
   Zorb is a high-performance Z-machine implementation that compiles Z-machine stories
   into optimized, standalone WebAssembly "Game Capsules".
 
-  This module provides ergonomic entry points for compiling stories and starting
-  interactive sessions.
+  This module provides the primary entry point for compiling stories into WASM.
   """
-
-  @doc """
-  Starts an interactive Z-machine session.
-
-  The `source` can be a path to a `.z` story file or a binary containing WASM bytes.
-
-  ## Options
-
-    * `:notify_to` - The PID to receive output messages. Defaults to `self()`.
-    * `:cache` - Whether to cache the compiled WASM capsule. Defaults to `false`.
-    * `:timeout` - WASM execution timeout per step. Defaults to `:infinity`.
-
-  ## Examples
-
-      # From a story file
-      {:ok, session} = Zorb.run("path/to/story.z5", cache: true)
-
-      # From WASM bytes
-      {:ok, session} = Zorb.run({:wasm_bytes, wasm_binary})
-
-  """
-  @spec run(binary() | {:wasm_bytes, binary()} | {:story_path, binary()}, keyword()) ::
-          GenServer.on_start()
-  def run(source, opts \\ []) do
-    Zorb.Session.start_link(source, opts)
-  end
 
   @doc """
   Compiles a Z-machine story file into a WebAssembly Game Capsule.

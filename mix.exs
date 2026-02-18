@@ -4,7 +4,7 @@ defmodule Zorb.MixProject do
   def project do
     [
       app: :zorb,
-      version: "0.5.1",
+      version: "0.6.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -14,7 +14,6 @@ defmodule Zorb.MixProject do
       package: package(),
       name: "Zorb",
       source_url: "https://github.com/mwmiller/zorb",
-      escript: [main_module: Zorb.CLI, name: "zorb_interpreter"],
       docs: [
         main: "Zorb",
         extras: [
@@ -34,7 +33,7 @@ defmodule Zorb.MixProject do
       maintainers: ["Matthew Miller"],
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/mwmiller/zorb"},
-      files: ~w(lib mix.exs README.md LICENSE usage-rules.md)
+      files: ~w(lib mix.exs README.md LICENSE usage-rules.md CAPSULE_HOST.md)
     ]
   end
 
@@ -66,7 +65,7 @@ defmodule Zorb.MixProject do
     [
       {:orb, "~> 0.2.2"},
       {:watusi, "~> 0.2.0"},
-      {:wasmex, "~> 0.14.0"},
+      {:wasmex, "~> 0.14.0", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:usage_rules, "~> 0.1", only: [:dev, :test], runtime: false},
       {:sourceror, "~> 1.7"},
