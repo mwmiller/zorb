@@ -32,6 +32,16 @@ To clear all compiled capsules and temporary artifacts:
 Zorb.clear_cache()
 ```
 
+To prune the cache based on usage (LRU):
+
+```elixir
+Zorb.prune_cache(max_files: 50)
+Zorb.prune_cache(max_size: 1024 * 1024 * 100) # 100MB
+Zorb.prune_cache(older_than: 3600 * 24 * 7)   # 1 week
+```
+
+Cache files are "touched" on every cache hit, ensuring that active story files are retained during pruning.
+
 ## Configuration
 
 You can configure Zorb in your `config/config.exs`:
@@ -67,6 +77,11 @@ All capsules export the following functions:
 - `zio_sound_effect(id: i32)`: Plays sound.
 - `zio_get_screen_size() -> i32`: Returns packed size.
 - `zio_get_capabilities() -> i32`: Returns feature bitmask.
+- `zio_get_version() -> i32`: Returns Z-machine version.
+- `zio_get_serial() -> i64`: Returns 6-byte serial string packed in i64.
+- `zio_get_command_prefix() -> i32`: Returns command prefix character.
+- `zio_get_chat_prefix() -> i64`: Returns null-terminated chat tag packed in i64.
+- `zio_get_channel_prefix() -> i64`: Returns null-terminated user label packed in i64.
 - `zio_halt(reason: i32)`: Terminates the VM.
 
 ### Required Imports (The Host Interface)

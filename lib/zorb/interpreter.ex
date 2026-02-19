@@ -2536,20 +2536,20 @@ defmodule Zorb.Interpreter do
     @version
   end
 
-  defw zio_get_serial(), T.Address do
-    I32.const(0x83001)
+  defw zio_get_serial(), I64 do
+    Memory.load!(I64, I32.const(0x8A001))
   end
 
   defw zio_get_command_prefix(), I32 do
-    read_byte(0x83008)
+    read_byte(0x8A008)
   end
 
-  defw zio_get_chat_prefix(), T.Address do
-    I32.const(0x83010)
+  defw zio_get_chat_prefix(), I64 do
+    Memory.load!(I64, I32.const(0x8A010))
   end
 
-  defw zio_get_channel_prefix(), T.Address do
-    I32.const(0x83050)
+  defw zio_get_channel_prefix(), I64 do
+    Memory.load!(I64, I32.const(0x8A050))
   end
 
   defw handle_interrupts(), i: I32 do

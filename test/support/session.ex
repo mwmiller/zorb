@@ -102,25 +102,7 @@ defmodule Zorb.Session do
   Returns the metadata for the running story.
   """
   def metadata(pid) do
-    state = :sys.get_state(pid)
-    metadata_state(state)
-  end
-
-  defp metadata_state(state) do
-    version = Wasmex.Memory.read_binary(state.store, state.mem, 0, 1) |> :binary.at(0)
-    cmd_prefix = Wasmex.Memory.read_binary(state.store, state.mem, 0x83008, 1) |> :binary.at(0)
-
-    serial = read_string(state, 0x83001, 6)
-    chat = read_null_terminated_string(state, 0x83010)
-    channel = read_null_terminated_string(state, 0x83050)
-
-    %{
-      version: version,
-      serial: serial,
-      command_prefix: cmd_prefix,
-      chat_prefix: chat,
-      channel_prefix: channel
-    }
+    GenServer.call(pid, :get_metadata)
   end
 
   # --- GenServer Callbacks ---
@@ -237,6 +219,29 @@ defmodule Zorb.Session do
   def handle_call(:check_interrupt, _from, state) do
     interrupt = state.pending_interrupt
     {:reply, interrupt, %{state | pending_interrupt: 0}}
+  end
+
+  def handle_call(:get_metadata, _from, state) do
+    {:ok, [version]} = Wasmex.call_function(state.instance, "zio_get_version", [])
+    {:ok, [serial_i64]} = Wasmex.call_function(state.instance, "zio_get_serial", [])
+    {:ok, [prefix]} = Wasmex.call_function(state.instance, "zio_get_command_prefix", [])
+    {:ok, [chat_i64]} = Wasmex.call_function(state.instance, "zio_get_chat_prefix", [])
+    {:ok, [channel_i64]} = Wasmex.call_function(state.instance, "zio_get_channel_prefix", [])
+
+    # Serial is first 6 bytes of the I64
+    serial = <<serial_i64::little-64>> |> binary_part(0, 6)
+    chat = <<chat_i64::little-64>> |> :binary.split(<<0>>) |> hd()
+    channel = <<channel_i64::little-64>> |> :binary.split(<<0>>) |> hd()
+
+    meta = %{
+      version: version,
+      serial: serial,
+      command_prefix: prefix,
+      chat_prefix: chat,
+      channel_prefix: channel
+    }
+
+    {:reply, meta, state}
   end
 
   def handle_call({:save_with_data, data, pc, sp, fp, csp, rs}, _from, state) do
@@ -758,15 +763,5 @@ defmodule Zorb.Session do
          :exit, _ -> 0
        end
      end}
-  end
-
-  defp read_string(state, ptr, len) do
-    Wasmex.Memory.read_binary(state.store, state.mem, ptr, len)
-  end
-
-  defp read_null_terminated_string(state, ptr) do
-    binary = Wasmex.Memory.read_binary(state.store, state.mem, ptr, 64)
-    [string | _] = :binary.split(binary, <<0>>)
-    string
   end
 end

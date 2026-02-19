@@ -18,7 +18,7 @@ Add `zorb` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:zorb, "~> 0.6.0"}
+    {:zorb, "~> 0.8.0"}
   ]
 end
 ```

@@ -61,10 +61,11 @@ defmodule Zorb.Capsule do
   end
 
   defp load_from_cache(story_data) do
-    hash = :crypto.hash(:sha256, story_data) |> Base.encode16()
+    hash = cache_hash(story_data)
     path = Path.join(Zorb.Config.cache_dir(), "#{hash}.wasm")
 
     if File.exists?(path) do
+      File.touch!(path)
       {:ok, File.read!(path)}
     else
       :error
@@ -72,8 +73,17 @@ defmodule Zorb.Capsule do
   end
 
   defp save_to_cache(story_data, wasm) do
-    hash = :crypto.hash(:sha256, story_data) |> Base.encode16()
+    hash = cache_hash(story_data)
     File.mkdir_p!(Zorb.Config.cache_dir())
     File.write!(Path.join(Zorb.Config.cache_dir(), "#{hash}.wasm"), wasm)
+  end
+
+  defp cache_hash(story_data) do
+    :crypto.hash(:sha256, [
+      @compiler_version,
+      Integer.to_string(byte_size(story_data)),
+      story_data
+    ])
+    |> Base.encode16()
   end
 end

@@ -41,4 +41,24 @@ defmodule Zorb do
   def clear_cache do
     Zorb.Config.clear_cache()
   end
+
+  @doc """
+  Prunes the cache based on size, file count, or age.
+
+  ## Options
+
+    * `:max_files` - Keep only the N most recently used files.
+    * `:max_size` - Keep the most recently used files up to the total size in bytes.
+    * `:older_than` - Remove files that haven't been accessed in the given number of seconds.
+
+  ## Examples
+
+      Zorb.prune_cache(max_files: 50)
+      Zorb.prune_cache(max_size: 1024 * 1024 * 100) # 100MB
+      Zorb.prune_cache(older_than: 3600 * 24 * 7)   # 1 week
+
+  """
+  def prune_cache(opts \\ []) do
+    Zorb.Config.prune_cache(opts)
+  end
 end

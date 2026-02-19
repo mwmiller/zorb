@@ -174,7 +174,7 @@ defmodule Zorb.TestSupport.Expect do
     Process.sleep(10)
   end
 
-  defp dump_buffer(buffer) do
+  def dump_buffer(buffer) do
     IO.puts("\n--- BUFFER DUMP START ---")
     IO.write(String.replace(buffer, "\r", "\n"))
     IO.puts("\n--- BUFFER DUMP END ---\n")

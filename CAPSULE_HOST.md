@@ -95,17 +95,44 @@ All Game Capsules provide access to semantic metadata extracted during compilati
 ### `zio_get_version() -> i32`
 Returns the Z-machine version of the story.
 
-### `zio_get_serial() -> i32`
-Returns the memory address of the 6-byte serial number string.
+### `zio_get_serial() -> i64`
+Returns the 6-byte serial number string packed into a 64-bit integer (little-endian).
+
+**Reassembly Examples:**
+
+- **Elixir (Wasmex)**:
+  ```elixir
+  {:ok, [serial_i64]} = Wasmex.call_function(instance, "zio_get_serial", [])
+  serial = <<serial_i64::little-64>> |> binary_part(0, 6)
+  ```
+
+- **JavaScript (Node.js/Browser)**:
+  ```javascript
+  const serialInt = instance.exports.zio_get_serial(); // BigInt
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(serialInt);
+  const serial = buf.toString('ascii', 0, 6);
+  ```
 
 ### `zio_get_command_prefix() -> i32`
 Returns the ZSCII/Unicode character recommended for out-of-band commands (e.g., `/` or `~`).
 
-### `zio_get_chat_prefix() -> i32`
-Returns the address of a null-terminated string representing the recommended chat tag (e.g., `RAD`, `ORB`, `VOX`). All tags are nouns and exactly 5 characters or fewer.
+### `zio_get_chat_prefix() -> i64`
+Returns a null-terminated ASCII/UTF-8 string (up to 8 bytes) representing the recommended chat tag (e.g., `RAD`, `ORB`, `VOX`) packed into a 64-bit integer (little-endian).
 
-### `zio_get_channel_prefix() -> i32`
-Returns the address of a null-terminated string representing the recommended user label (e.g., `FOLKS`, `SOULS`, `MATES`). All labels are nouns and exactly 5 characters or fewer.
+### `zio_get_channel_prefix() -> i64`
+Returns a null-terminated ASCII/UTF-8 string (up to 8 bytes) representing the recommended user label (e.g., `FOLKS`, `SOULS`, `MATES`) packed into a 64-bit integer (little-endian).
+
+**String Reassembly (JavaScript):**
+```javascript
+function readI64String(bigInt) {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(bigInt);
+  return buf.toString('utf8').replace(/\0/g, '');
+}
+
+const chatTag = readI64String(instance.exports.zio_get_chat_prefix());
+```
 
 ## Save/Restore Interface
 
@@ -187,5 +214,6 @@ The following memory locations are used internally by the Capsule. The Host is *
 - `0x80000`: Unicode Translation Table.
 - `0x81000`: Alphabet Tables.
 - `0x82000`: Dictionary Hash Table (O(1) lookups).
+- `0x8A000`: Orbit Radio Metadata (Serial, Tags, Prefixes).
 - `0x90000`: Z-stack.
 - `0x98000`: Call Stack.

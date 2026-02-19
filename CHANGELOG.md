@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-19
+
+### Added
+- **LRU Cache Pruning**: Introduced `Zorb.prune_cache/1` to manage the compilation cache based on file count, total size, or age using a Least-Recently-Used (LRU) policy.
+- **Robust Cache Invalidation**: The cache hash now includes the compiler version and story data byte size, ensuring that updates to Zorb automatically trigger re-compilation of existing story files.
+
+### Changed
+- **Cache Hit Behavior**: Loading from the cache now "touches" the cached `.wasm` file, updating its modification time to support LRU pruning.
+
 ## [0.7.0] - 2026-02-19
 
 ### Added

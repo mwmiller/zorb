@@ -42,4 +42,65 @@ defmodule Zorb.Config do
     File.rm_rf!(working_dir())
     ensure_dirs!()
   end
+
+  @doc """
+  Prunes the cache based on size, file count, or age.
+  """
+  def prune_cache(opts \\ []) do
+    dir = cache_dir()
+
+    if File.exists?(dir) do
+      dir
+      |> list_cache_files()
+      |> prune_by_age(opts[:older_than])
+      |> prune_by_count(opts[:max_files])
+      |> prune_by_size(opts[:max_size])
+    end
+
+    :ok
+  end
+
+  defp list_cache_files(dir) do
+    dir
+    |> File.ls!()
+    |> Enum.filter(&String.ends_with?(&1, ".wasm"))
+    |> Enum.map(fn name ->
+      path = Path.join(dir, name)
+      stat = File.stat!(path, time: :posix)
+      %{path: path, mtime: stat.mtime, size: stat.size}
+    end)
+    |> Enum.sort_by(& &1.mtime, :desc)
+  end
+
+  defp prune_by_age(files, nil), do: files
+
+  defp prune_by_age(files, seconds) do
+    cutoff = System.system_time(:second) - seconds
+    {keep, remove} = Enum.split_with(files, &(&1.mtime >= cutoff))
+    Enum.each(remove, &File.rm!(&1.path))
+    keep
+  end
+
+  defp prune_by_count(files, nil), do: files
+
+  defp prune_by_count(files, limit) do
+    {keep, remove} = Enum.split(files, limit)
+    Enum.each(remove, &File.rm!(&1.path))
+    keep
+  end
+
+  defp prune_by_size(_files, nil), do: :ok
+
+  defp prune_by_size(files, limit) do
+    Enum.reduce_while(files, 0, fn %{path: path, size: size}, acc ->
+      new_acc = acc + size
+
+      if new_acc > limit do
+        File.rm!(path)
+        {:cont, new_acc}
+      else
+        {:cont, new_acc}
+      end
+    end)
+  end
 end
