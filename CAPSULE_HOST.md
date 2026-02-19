@@ -88,6 +88,25 @@ Sets the text colors.
 ### `get_screen_size() -> i32`
 Returns the current dimensions of the host display as a packed 32-bit integer: `[height:16, width:16]`.
 
+## Story Metadata Interface (Orbit Radio)
+
+All Game Capsules provide access to semantic metadata extracted during compilation. This is used by the Host to determine how to present out-of-band features like "Orbit Radio".
+
+### `zio_get_version() -> i32`
+Returns the Z-machine version of the story.
+
+### `zio_get_serial() -> i32`
+Returns the memory address of the 6-byte serial number string.
+
+### `zio_get_command_prefix() -> i32`
+Returns the ZSCII/Unicode character recommended for out-of-band commands (e.g., `/` or `~`).
+
+### `zio_get_chat_prefix() -> i32`
+Returns the address of a null-terminated string representing the recommended chat tag (e.g., `RAD`, `ORB`, `VOX`). All tags are nouns and exactly 5 characters or fewer.
+
+### `zio_get_channel_prefix() -> i32`
+Returns the address of a null-terminated string representing the recommended user label (e.g., `FOLKS`, `SOULS`, `MATES`). All labels are nouns and exactly 5 characters or fewer.
+
 ## Save/Restore Interface
 
 The following functions are used to implement the Z-machine `save` and `restore` instructions.

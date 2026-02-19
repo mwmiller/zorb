@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-19
+
+### Added
+- **Story Analysis Engine**: Introduced `Zorb.Inspector` for semantic analysis of Z-machine story files.
+- **Orbit Radio Metadata**: Game Capsules now bake evocative, dictionary-matched metadata (chat tags, user labels, and command prefixes) into memory.
+- **Enhanced Host API**: Added `Zorb.metadata/1` and `Zorb.Session.metadata/1` for easy retrieval of story-specific social metadata.
+- **New ZIO Exports**: All capsules now export `zio_get_*` functions for version, serial, and Orbit Radio metadata.
+
+### Fixed
+- Improved robustness of dictionary scanning to handle empty or minimal story dictionaries without crashing.
+
 ## [0.6.0] - 2026-02-18
 
 ### Changed

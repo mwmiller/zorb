@@ -17,6 +17,14 @@ Use `Zorb.compile/2` to generate a WebAssembly binary.
 wasm_bytes = Zorb.compile("path/to/zork1.z3", cache: true)
 ```
 
+### Analyzing Story Metadata
+Use `Zorb.metadata/1` to extract semantic metadata (e.g., for Orbit Radio) from a story file.
+
+```elixir
+meta = Zorb.metadata("path/to/story.z5")
+# => %{command_prefix: 47, chat_prefix: "ORB", channel_prefix: "SOULS", ...}
+```
+
 ### Cache Management
 To clear all compiled capsules and temporary artifacts:
 

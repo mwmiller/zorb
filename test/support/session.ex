@@ -98,6 +98,31 @@ defmodule Zorb.Session do
     GenServer.call(pid, :external_restore_undo)
   end
 
+  @doc """
+  Returns the metadata for the running story.
+  """
+  def metadata(pid) do
+    state = :sys.get_state(pid)
+    metadata_state(state)
+  end
+
+  defp metadata_state(state) do
+    version = Wasmex.Memory.read_binary(state.store, state.mem, 0, 1) |> :binary.at(0)
+    cmd_prefix = Wasmex.Memory.read_binary(state.store, state.mem, 0x83008, 1) |> :binary.at(0)
+
+    serial = read_string(state, 0x83001, 6)
+    chat = read_null_terminated_string(state, 0x83010)
+    channel = read_null_terminated_string(state, 0x83050)
+
+    %{
+      version: version,
+      serial: serial,
+      command_prefix: cmd_prefix,
+      chat_prefix: chat,
+      channel_prefix: channel
+    }
+  end
+
   # --- GenServer Callbacks ---
 
   @doc false
@@ -733,5 +758,15 @@ defmodule Zorb.Session do
          :exit, _ -> 0
        end
      end}
+  end
+
+  defp read_string(state, ptr, len) do
+    Wasmex.Memory.read_binary(state.store, state.mem, ptr, len)
+  end
+
+  defp read_null_terminated_string(state, ptr) do
+    binary = Wasmex.Memory.read_binary(state.store, state.mem, ptr, 64)
+    [string | _] = :binary.split(binary, <<0>>)
+    string
   end
 end

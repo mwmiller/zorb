@@ -27,6 +27,15 @@ defmodule Zorb do
   end
 
   @doc """
+  Extracts metadata from a Z-machine story file.
+  """
+  @spec metadata(binary()) :: map()
+  def metadata(story_path) do
+    story_data = File.read!(story_path)
+    Zorb.Inspector.analyze(story_data)
+  end
+
+  @doc """
   Clears all cached WASM capsules and temporary artifacts.
   """
   def clear_cache do

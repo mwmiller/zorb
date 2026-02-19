@@ -25,6 +25,14 @@ defmodule Zorb.Capsule.Assembler do
     {ro, so} = calculate_offsets(version, story_data)
     unicode = generate_unicode_binary()
 
+    metadata = Zorb.Inspector.analyze(story_data)
+
+    metadata_bin =
+      <<metadata.version::8, metadata.serial::binary-size(6), 0::8, metadata.command_prefix::8,
+        0::56>> <>
+        String.pad_trailing(metadata.chat_prefix, 64, <<0>>) <>
+        String.pad_trailing(metadata.channel_prefix, 64, <<0>>)
+
     # Spec 3.5.3: Alphabets. Note: zchars 0-5 are special, table starts at zchar 6.
     a0 = Enum.to_list(?a..?z)
     a1 = Enum.to_list(?A..?Z)
@@ -170,6 +178,7 @@ defmodule Zorb.Capsule.Assembler do
         Orb.Memory.initial_data!(0x80000, u8: @payload.unicode)
         Orb.Memory.initial_data!(0x81000, u8: unquote(alphabets))
         Orb.Memory.initial_data!(0x82000, u8: @payload.hash)
+        Orb.Memory.initial_data!(0x83000, u8: unquote(:binary.bin_to_list(metadata_bin)))
       end
     ]
 
