@@ -131,11 +131,21 @@ defmodule Zorb.Session do
   defp resolve_wasm_bytes({:wasm_bytes, bytes}, _opts), do: bytes
 
   defp resolve_wasm_bytes({:story_path, path}, opts) do
-    Zorb.Capsule.compile(path, cache: Keyword.get(opts, :cache, false))
+    compile_opts = [
+      cache: Keyword.get(opts, :cache, false),
+      method: Keyword.get(opts, :method, :patcher)
+    ]
+
+    Zorb.Capsule.compile(path, compile_opts)
   end
 
   defp resolve_wasm_bytes(path, opts) when is_binary(path) do
-    Zorb.Capsule.compile(path, cache: Keyword.get(opts, :cache, false))
+    compile_opts = [
+      cache: Keyword.get(opts, :cache, false),
+      method: Keyword.get(opts, :method, :patcher)
+    ]
+
+    Zorb.Capsule.compile(path, compile_opts)
   end
 
   defp build_all_imports(session_pid, opts) do

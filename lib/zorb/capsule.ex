@@ -16,6 +16,7 @@ defmodule Zorb.Capsule do
 
   ## Options
     * `:cache` - Boolean, whether to cache the result. Defaults to `false`.
+    * `:method` - Compilation method: `:patcher` (fast, default) or `:traditional` (slow, for debugging)
   """
   def compile(story_path, opts \\ []) when is_binary(story_path) do
     story_data = File.read!(story_path)
@@ -26,55 +27,45 @@ defmodule Zorb.Capsule do
           wasm
 
         :error ->
-          wasm = perform_compile(story_data, "Bespoke")
+          wasm = perform_compile(story_data, opts)
           save_to_cache(story_data, wasm)
           wasm
       end
     else
-      perform_compile(story_data, "Bespoke")
+      perform_compile(story_data, opts)
     end
   end
 
-  defp perform_compile(story_data, base_name) do
-    require Logger
-    compile_start = System.monotonic_time(:millisecond)
+  defp perform_compile(story_data, opts) do
+    method = Keyword.get(opts, :method, :patcher)
 
+    case method do
+      :patcher ->
+        Zorb.Patcher.compile_data(story_data)
+
+      :traditional ->
+        perform_traditional_compile(story_data, "Bespoke")
+    end
+  end
+
+  defp perform_traditional_compile(story_data, base_name) do
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 
-    assemble_start = System.monotonic_time(:millisecond)
     {source, _data} = Assembler.assemble(story_data, module_name)
-    assemble_time = System.monotonic_time(:millisecond) - assemble_start
-    Logger.debug("Total Assembler.assemble: #{assemble_time}ms")
-
-    Zorb.Config.ensure_dirs!()
-    File.write!(Path.join(Zorb.Config.working_dir(), "last_assembled.ex"), source)
-
-    elixir_start = System.monotonic_time(:millisecond)
 
     try do
       Code.compile_string(source)
-    catch
-      kind, e ->
-        IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
+    rescue
+      e ->
+        IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{inspect(e)}")
         reraise e, __STACKTRACE__
     end
 
-    elixir_time = System.monotonic_time(:millisecond) - elixir_start
-    Logger.debug("Elixir Code.compile_string: #{elixir_time}ms")
-
-    orb_start = System.monotonic_time(:millisecond)
-    wat = Orb.to_wat(module_name)
-    orb_time = System.monotonic_time(:millisecond) - orb_start
-    Logger.debug("Orb.to_wat: #{orb_time}ms")
-
-    watusi_start = System.monotonic_time(:millisecond)
-    wasm = Watusi.to_wasm(wat)
-    watusi_time = System.monotonic_time(:millisecond) - watusi_start
-    Logger.debug("Watusi.to_wasm: #{watusi_time}ms")
-
-    total_time = System.monotonic_time(:millisecond) - compile_start
-    Logger.info("Total compilation: #{total_time}ms")
+    wasm =
+      module_name
+      |> Orb.to_wat()
+      |> Watusi.to_wasm()
 
     File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wasm"), wasm)
     wasm

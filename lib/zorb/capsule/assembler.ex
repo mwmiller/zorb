@@ -15,11 +15,9 @@ defmodule Zorb.Capsule.Assembler do
     <<version::8, _::binary>> = story_data
 
     # 1. Read fat AST and prune version branches
-    {ast_time, ast} = :timer.tc(fn -> fat_ast() |> prune_version_branches(version) end)
-    Logger.debug("AST pruning: #{ast_time / 1000}ms")
+    ast = fat_ast() |> prune_version_branches(version)
 
     # 2. Prepare Data
-    data_start = System.monotonic_time(:millisecond)
     {gb, smb, db, ab, otb} = extract_header_fields(story_data)
     {hash_table, mask} = generate_dictionary_hash_table(story_data, db, version)
     pruned_story = prune_story_data(story_data, dictionary_base: db)
@@ -134,11 +132,7 @@ defmodule Zorb.Capsule.Assembler do
     Zorb.Config.ensure_dirs!()
     File.write!(payload_path, :erlang.term_to_binary(payload))
 
-    data_time = System.monotonic_time(:millisecond) - data_start
-    Logger.debug("Data preparation: #{data_time}ms")
-
     # 3. Create Replacement ASTs
-    ast_gen_start = System.monotonic_time(:millisecond)
     host_registration_ast = quote(do: Orb.Import.register(Zorb.Capsule.Host))
 
     global_block_ast =
@@ -1047,12 +1041,7 @@ defmodule Zorb.Capsule.Assembler do
       end
       |> prune_version_branches(version)
 
-    ast_gen_time = System.monotonic_time(:millisecond) - ast_gen_start
-    Logger.debug("AST generation: #{ast_gen_time}ms")
-
     # 4. Transform AST in a single pass
-    transform_start = System.monotonic_time(:millisecond)
-
     final_ast =
       Macro.prewalk(ast, fn
         {:defmodule, meta, children} = node when is_list(children) ->
@@ -1126,15 +1115,7 @@ defmodule Zorb.Capsule.Assembler do
           node
       end)
 
-    transform_time = System.monotonic_time(:millisecond) - transform_start
-    Logger.debug("AST transformation: #{transform_time}ms")
-
-    sourceror_start = System.monotonic_time(:millisecond)
     source_code = Sourceror.to_string(final_ast)
-    sourceror_time = System.monotonic_time(:millisecond) - sourceror_start
-    Logger.debug("Sourceror.to_string: #{sourceror_time}ms")
-
-    File.write!(Path.join(Zorb.Config.working_dir(), "last_bespoke_source.ex"), source_code)
 
     {source_code, nil}
   end

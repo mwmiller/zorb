@@ -6,7 +6,7 @@ If you are building an application that uses Zorb to compile Z-machine stories, 
 
 - **Z-Machine Versions**: Zorb supports Versions 1-5 and 7-8. **Version 6 is not supported.** Ensure your story files match these versions.
 - **WASM Interface**: Zorb generates WASM Game Capsules that follow the `zio` host interface. You must provide a host environment (in Elixir, JavaScript, or another WASM-capable language) to execute these capsules.
-- **Compilation Artifacts**: Zorb generates temporary files (WASM capsules and sidecar payloads). By default, these are in a system temp directory. If your environment (like Heroku or some Docker setups) has a read-only filesystem, you **must** configure `working_dir` to a writable path.
+- **Compilation Method**: Zorb uses a WASM patcher by default for ~1ms compilation. Use `method: :traditional` option for debugging if needed.
 
 ## Elixir Integration
 
@@ -14,7 +14,11 @@ If you are building an application that uses Zorb to compile Z-machine stories, 
 Use `Zorb.compile/2` to generate a WebAssembly binary.
 
 ```elixir
+# Fast patcher-based compilation (~1ms)
 wasm_bytes = Zorb.compile("path/to/zork1.z3", cache: true)
+
+# Traditional compilation for debugging (~4s)
+wasm_bytes = Zorb.compile("path/to/zork1.z3", method: :traditional)
 ```
 
 ### Analyzing Story Metadata
