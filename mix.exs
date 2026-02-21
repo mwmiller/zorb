@@ -4,7 +4,7 @@ defmodule Zorb.MixProject do
   def project do
     [
       app: :zorb,
-      version: "0.9.0",
+      version: "0.9.1",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -24,6 +24,10 @@ defmodule Zorb.MixProject do
           "ORB_CONCEPTS.md",
           "ZMACHINE.md"
         ]
+      ],
+      compilers: Mix.compilers(),
+      elixirc_options: [
+        all_warnings: true
       ]
     ]
   end

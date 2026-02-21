@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.1] - 2026-02-21
+
+### Fixed
+- Template generation now uses lazy loading with persistent_term caching to avoid compile-time module dependency issues
+
 ## [0.9.0] - 2026-02-21
 
 ### Added
