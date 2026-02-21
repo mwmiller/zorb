@@ -36,12 +36,21 @@ defmodule Zorb.Capsule do
   end
 
   defp perform_compile(story_data, base_name) do
+    require Logger
+    compile_start = System.monotonic_time(:millisecond)
+
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 
+    assemble_start = System.monotonic_time(:millisecond)
     {source, _data} = Assembler.assemble(story_data, module_name)
+    assemble_time = System.monotonic_time(:millisecond) - assemble_start
+    Logger.debug("Total Assembler.assemble: #{assemble_time}ms")
+
     Zorb.Config.ensure_dirs!()
     File.write!(Path.join(Zorb.Config.working_dir(), "last_assembled.ex"), source)
+
+    elixir_start = System.monotonic_time(:millisecond)
 
     try do
       Code.compile_string(source)
@@ -51,10 +60,21 @@ defmodule Zorb.Capsule do
         reraise e, __STACKTRACE__
     end
 
-    wasm =
-      module_name
-      |> Orb.to_wat()
-      |> Watusi.to_wasm()
+    elixir_time = System.monotonic_time(:millisecond) - elixir_start
+    Logger.debug("Elixir Code.compile_string: #{elixir_time}ms")
+
+    orb_start = System.monotonic_time(:millisecond)
+    wat = Orb.to_wat(module_name)
+    orb_time = System.monotonic_time(:millisecond) - orb_start
+    Logger.debug("Orb.to_wat: #{orb_time}ms")
+
+    watusi_start = System.monotonic_time(:millisecond)
+    wasm = Watusi.to_wasm(wat)
+    watusi_time = System.monotonic_time(:millisecond) - watusi_start
+    Logger.debug("Watusi.to_wasm: #{watusi_time}ms")
+
+    total_time = System.monotonic_time(:millisecond) - compile_start
+    Logger.info("Total compilation: #{total_time}ms")
 
     File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wasm"), wasm)
     wasm

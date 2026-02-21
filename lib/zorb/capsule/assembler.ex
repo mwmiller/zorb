@@ -15,15 +15,23 @@ defmodule Zorb.Capsule.Assembler do
     <<version::8, _::binary>> = story_data
 
     # 1. Read fat AST and prune version branches
-    ast = fat_ast() |> prune_version_branches(version)
+    {ast_time, ast} = :timer.tc(fn -> fat_ast() |> prune_version_branches(version) end)
+    Logger.debug("AST pruning: #{ast_time / 1000}ms")
 
     # 2. Prepare Data
+    data_start = System.monotonic_time(:millisecond)
     {gb, smb, db, ab, otb} = extract_header_fields(story_data)
     {hash_table, mask} = generate_dictionary_hash_table(story_data, db, version)
     pruned_story = prune_story_data(story_data, dictionary_base: db)
     {pas, oes, po, soj, co, pto} = calculate_version_constants(version)
     {ro, so} = calculate_offsets(version, story_data)
-    unicode = generate_unicode_binary()
+
+    # Unicode table only needed for V5+
+    unicode =
+      case version >= 5 do
+        true -> generate_unicode_binary()
+        false -> <<>>
+      end
 
     metadata = Zorb.Inspector.analyze(story_data)
 
@@ -97,7 +105,13 @@ defmodule Zorb.Capsule.Assembler do
       ?)
     ]
 
-    alphabets = a0 ++ a1 ++ a2_v1 ++ a2_v2
+    # Prune unused alphabet based on version
+    alphabets =
+      case version do
+        1 -> a0 ++ a1 ++ a2_v1 ++ List.duplicate(0, 26)
+        _ -> a0 ++ a1 ++ List.duplicate(0, 26) ++ a2_v2
+      end
+
     if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
 
     # Create a payload of baked data to be loaded during module compilation
@@ -120,7 +134,11 @@ defmodule Zorb.Capsule.Assembler do
     Zorb.Config.ensure_dirs!()
     File.write!(payload_path, :erlang.term_to_binary(payload))
 
+    data_time = System.monotonic_time(:millisecond) - data_start
+    Logger.debug("Data preparation: #{data_time}ms")
+
     # 3. Create Replacement ASTs
+    ast_gen_start = System.monotonic_time(:millisecond)
     host_registration_ast = quote(do: Orb.Import.register(Zorb.Capsule.Host))
 
     global_block_ast =
@@ -1029,22 +1047,28 @@ defmodule Zorb.Capsule.Assembler do
       end
       |> prune_version_branches(version)
 
+    ast_gen_time = System.monotonic_time(:millisecond) - ast_gen_start
+    Logger.debug("AST generation: #{ast_gen_time}ms")
+
     # 4. Transform AST in a single pass
+    transform_start = System.monotonic_time(:millisecond)
+
     final_ast =
       Macro.prewalk(ast, fn
-        {:defmodule, meta, children} = node ->
-          if is_list(children) do
-            [_old_name, args_list | _] = children
+        {:defmodule, meta, children} = node when is_list(children) ->
+          [_old_name, args_list | _] = children
 
-            body =
-              case args_list do
-                [{{:__block__, _, [:do]}, b}] -> b
-                _ -> Keyword.get(args_list, :do)
-              end
+          body =
+            case args_list do
+              [{{:__block__, _, [:do]}, b}] -> b
+              _ -> Keyword.get(args_list, :do)
+            end
 
-            if is_nil(body) do
+          case body do
+            nil ->
               node
-            else
+
+            _ ->
               alias_node =
                 {:__aliases__, [alias: false],
                  Module.split(module_name) |> Enum.map(&String.to_atom/1)}
@@ -1096,134 +1120,158 @@ defmodule Zorb.Capsule.Assembler do
                 |> Enum.reject(&is_nil/1)
 
               {:defmodule, meta, [alias_node, [do: {:__block__, [], final_children}]]}
-            end
-          else
-            node
           end
 
         node ->
           node
       end)
 
+    transform_time = System.monotonic_time(:millisecond) - transform_start
+    Logger.debug("AST transformation: #{transform_time}ms")
+
+    sourceror_start = System.monotonic_time(:millisecond)
     source_code = Sourceror.to_string(final_ast)
+    sourceror_time = System.monotonic_time(:millisecond) - sourceror_start
+    Logger.debug("Sourceror.to_string: #{sourceror_time}ms")
+
     File.write!(Path.join(Zorb.Config.working_dir(), "last_bespoke_source.ex"), source_code)
 
     {source_code, nil}
   end
 
   def prune_version_branches(ast, version) do
-    result = Macro.prewalk(ast, fn
-      {:defmodule, meta, args} ->
-        new_args = Enum.map(args, fn
-          [{{:__block__, _, [:do]}, body}] ->
-            [{{:__block__, [], [:do]}, prune_module_body(body, version)}]
-          [do: body] ->
-            [do: prune_module_body(body, version)]
-          other -> other
-        end)
-        {:defmodule, meta, new_args}
-      
-      {func_type, _, _} = node when func_type in [:defw, :defwp] ->
-        prune_function(node, version)
-      
-      node -> node
-    end)
-    
+    result =
+      Macro.prewalk(ast, fn
+        {:defmodule, meta, args} ->
+          new_args =
+            Enum.map(args, fn
+              [{{:__block__, _, [:do]}, body}] ->
+                [{{:__block__, [], [:do]}, prune_module_body(body, version)}]
+
+              [do: body] ->
+                [do: prune_module_body(body, version)]
+
+              other ->
+                other
+            end)
+
+          {:defmodule, meta, new_args}
+
+        {func_type, _, _} = node when func_type in [:defw, :defwp] ->
+          prune_function(node, version)
+
+        node ->
+          node
+      end)
+
     # Remove any nil nodes
     Macro.prewalk(result, fn
       nil -> {:__block__, [], []}
       node -> node
     end)
   end
-  
+
   defp prune_module_body(body, version) do
     case body do
       {:__block__, meta, children} ->
         pruned_children = Enum.map(children, &prune_function(&1, version))
         {:__block__, meta, pruned_children}
-      other -> other
+
+      other ->
+        other
     end
   end
-  
+
   defp prune_function({func_type, func_meta, args}, version) when func_type in [:defw, :defwp] do
-    pruned_args = case args do
-      # 4 args: [name, return_type, local_vars, body_kwlist]
-      [name, return_type, local_vars, body_kwlist] when is_list(body_kwlist) ->
-        [name, return_type, local_vars, prune_kwlist(body_kwlist, version)]
-      
-      # 3 args: [name, return_type, body_kwlist]
-      [name, return_type, body_kwlist] when is_list(body_kwlist) ->
-        [name, return_type, prune_kwlist(body_kwlist, version)]
-      
-      # 2 args: [name, body_kwlist]
-      [name, body_kwlist] when is_list(body_kwlist) ->
-        [name, prune_kwlist(body_kwlist, version)]
-      
-      # Fallback: try to find and prune any keyword list
-      other_args ->
-        Enum.map(other_args, fn
-          kwlist when is_list(kwlist) ->
-            if Keyword.keyword?(kwlist) do
-              prune_kwlist(kwlist, version)
-            else
-              kwlist
-            end
-          arg -> arg
-        end)
-    end
-    
+    pruned_args =
+      case args do
+        # 4 args: [name, return_type, local_vars, body_kwlist]
+        [name, return_type, local_vars, body_kwlist] when is_list(body_kwlist) ->
+          [name, return_type, local_vars, prune_kwlist(body_kwlist, version)]
+
+        # 3 args: [name, return_type, body_kwlist]
+        [name, return_type, body_kwlist] when is_list(body_kwlist) ->
+          [name, return_type, prune_kwlist(body_kwlist, version)]
+
+        # 2 args: [name, body_kwlist]
+        [name, body_kwlist] when is_list(body_kwlist) ->
+          [name, prune_kwlist(body_kwlist, version)]
+
+        # Fallback: try to find and prune any keyword list
+        other_args ->
+          Enum.map(other_args, fn
+            kwlist when is_list(kwlist) ->
+              case Keyword.keyword?(kwlist) do
+                true -> prune_kwlist(kwlist, version)
+                false -> kwlist
+              end
+
+            arg ->
+              arg
+          end)
+      end
+
     {func_type, func_meta, pruned_args}
   end
-  
+
   defp prune_function(other, _version), do: other
-  
+
   defp prune_kwlist(kwlist, version) do
     Enum.map(kwlist, fn
-      {{:__block__, _, [:do]}, func_body} -> 
+      {{:__block__, _, [:do]}, func_body} ->
         pruned = prune_version_branches_in_block(func_body, version)
         cleaned = clean_empty_statements(pruned)
         {{:__block__, [], [:do]}, cleaned}
-      {key, func_body} when key == :do -> 
+
+      {key, func_body} when key == :do ->
         pruned = prune_version_branches_in_block(func_body, version)
         cleaned = clean_empty_statements(pruned)
         {key, cleaned}
-      other -> other
+
+      other ->
+        other
     end)
   end
-  
+
   # Remove empty blocks that appear as statements, but preserve them in if/else bodies
   defp clean_empty_statements(ast) do
     ast
     |> flatten_nested_blocks()
     |> remove_empty_blocks_from_lists()
   end
-  
+
   # Flatten blocks that contain other blocks as direct children
   defp flatten_nested_blocks(ast) do
     Macro.prewalk(ast, fn
       {:__block__, meta, children} when is_list(children) ->
-        flattened = Enum.flat_map(children, fn
-          {:__block__, _, nested_children} when is_list(nested_children) -> nested_children
-          other -> [other]
-        end)
+        flattened =
+          Enum.flat_map(children, fn
+            {:__block__, _, nested_children} when is_list(nested_children) -> nested_children
+            other -> [other]
+          end)
+
         {:__block__, meta, flattened}
-      node -> node
+
+      node ->
+        node
     end)
   end
-  
+
   # Remove empty blocks from statement lists
   defp remove_empty_blocks_from_lists(ast) do
     Macro.postwalk(ast, fn
       {:__block__, meta, children} when is_list(children) ->
-        filtered = Enum.reject(children, &is_empty_block?/1)
+        filtered = Enum.reject(children, &empty_block?/1)
         {:__block__, meta, filtered}
-      node -> node
+
+      node ->
+        node
     end)
   end
-  
-  defp is_empty_block?({:__block__, _, []}), do: true
-  defp is_empty_block?(nil), do: true
-  defp is_empty_block?(_), do: false
+
+  defp empty_block?({:__block__, _, []}), do: true
+  defp empty_block?(nil), do: true
+  defp empty_block?(_), do: false
 
   defp prune_version_branches_in_block(nil, _version), do: {:__block__, [], []}
 
@@ -1237,29 +1285,46 @@ defmodule Zorb.Capsule.Assembler do
 
             if target_str in ["I32", "Orb.I32"] do
               # Extract version number from AST
-              version_num = case v do
-                {{:., _, [{:__aliases__, _, [:I32]}, :const]}, _, [{:__block__, _, [n]}]} when is_integer(n) -> n
-                {{:., _, [:I32, :const]}, _, [{:__block__, _, [n]}]} when is_integer(n) -> n
-                {{:., _, [{:__aliases__, _, [:I32]}, :const]}, _, [n]} when is_integer(n) -> n
-                {{:., _, [:I32, :const]}, _, [n]} when is_integer(n) -> n
-                {:__block__, _, [n]} when is_integer(n) -> n
-                n when is_integer(n) -> n
-                _ -> nil
-              end
-              
+              version_num =
+                case v do
+                  {{:., _, [{:__aliases__, _, [:I32]}, :const]}, _, [{:__block__, _, [n]}]}
+                  when is_integer(n) ->
+                    n
+
+                  {{:., _, [:I32, :const]}, _, [{:__block__, _, [n]}]} when is_integer(n) ->
+                    n
+
+                  {{:., _, [{:__aliases__, _, [:I32]}, :const]}, _, [n]} when is_integer(n) ->
+                    n
+
+                  {{:., _, [:I32, :const]}, _, [n]} when is_integer(n) ->
+                    n
+
+                  {:__block__, _, [n]} when is_integer(n) ->
+                    n
+
+                  n when is_integer(n) ->
+                    n
+
+                  _ ->
+                    nil
+                end
+
               if version_num do
                 # Sourceror wraps keys in {:__block__, meta, [key]}
-                yes = Enum.find_value(blocks, {:__block__, [], []}, fn
-                  {{:__block__, _, [:do]}, value} -> value
-                  {:do, value} -> value
-                  _ -> nil
-                end)
-                
-                no = Enum.find_value(blocks, {:__block__, [], []}, fn
-                  {{:__block__, _, [:else]}, value} -> value
-                  {:else, value} -> value
-                  _ -> nil
-                end)
+                yes =
+                  Enum.find_value(blocks, {:__block__, [], []}, fn
+                    {{:__block__, _, [:do]}, value} -> value
+                    {:do, value} -> value
+                    _ -> nil
+                  end)
+
+                no =
+                  Enum.find_value(blocks, {:__block__, [], []}, fn
+                    {{:__block__, _, [:else]}, value} -> value
+                    {:else, value} -> value
+                    _ -> nil
+                  end)
 
                 take_yes =
                   case op do
@@ -1272,7 +1337,7 @@ defmodule Zorb.Capsule.Assembler do
                   end
 
                 result = if take_yes, do: yes, else: no
-                
+
                 # Don't unwrap - let parent context handle it
                 result
               else
@@ -1322,19 +1387,15 @@ defmodule Zorb.Capsule.Assembler do
     {globals_base, static_memory_base, dictionary_base, abbreviations_base, object_table_base}
   end
 
-  def calculate_version_constants(version) do
-    if version <= 3, do: {1, 9, 4, 5, 6, 7}, else: {2, 14, 6, 8, 10, 12}
+  def calculate_version_constants(version) when version <= 3, do: {1, 9, 4, 5, 6, 7}
+  def calculate_version_constants(_version), do: {2, 14, 6, 8, 10, 12}
+
+  def calculate_offsets(version, story_data) when version in 6..7 do
+    <<_::320, r::16, s::16, _::binary>> = story_data
+    {r * 8, s * 8}
   end
 
-  def calculate_offsets(version, story_data) do
-    if version in 6..7,
-      do:
-        (
-          <<_::320, r::16, s::16, _::binary>> = story_data
-          {r * 8, s * 8}
-        ),
-      else: {0, 0}
-  end
+  def calculate_offsets(_version, _story_data), do: {0, 0}
 
   def prune_story_data(data, _opts), do: data
 
@@ -1348,15 +1409,17 @@ defmodule Zorb.Capsule.Assembler do
     table = Tuple.duplicate({0, 0, 0, 0}, table_size)
 
     final_table =
-      if num_entries > 0 do
-        Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
-          addr = entries_start + i * entry_len
-          {w1, w2, w3} = get_encoded_words(story_data, addr, version)
-          hash = Bitwise.bxor(w1, Bitwise.bxor(w2, w3)) |> Bitwise.band(mask)
-          insert_at_slot(acc, hash, w1, w2, w3, addr, mask)
-        end)
-      else
-        table
+      case num_entries do
+        0 ->
+          table
+
+        _ ->
+          Enum.reduce(0..(num_entries - 1), table, fn i, acc ->
+            addr = entries_start + i * entry_len
+            {w1, w2, w3} = get_encoded_words(story_data, addr, version)
+            hash = Bitwise.bxor(w1, Bitwise.bxor(w2, w3)) |> Bitwise.band(mask)
+            insert_at_slot(acc, hash, w1, w2, w3, addr, mask)
+          end)
       end
 
     bin =
@@ -1369,14 +1432,14 @@ defmodule Zorb.Capsule.Assembler do
     {bin, mask}
   end
 
-  defp get_encoded_words(story_data, addr, version) do
-    if version <= 3 do
-      <<_::binary-size(addr), w1::16-big, w2::16-big, _::binary>> = story_data
-      {w1, w2, 0}
-    else
-      <<_::binary-size(addr), w1::16-big, w2::16-big, w3::16-big, _::binary>> = story_data
-      {w1, w2, w3}
-    end
+  defp get_encoded_words(story_data, addr, version) when version <= 3 do
+    <<_::binary-size(addr), w1::16-big, w2::16-big, _::binary>> = story_data
+    {w1, w2, 0}
+  end
+
+  defp get_encoded_words(story_data, addr, _version) do
+    <<_::binary-size(addr), w1::16-big, w2::16-big, w3::16-big, _::binary>> = story_data
+    {w1, w2, w3}
   end
 
   defp insert_at_slot(table, slot, w1, w2, w3, addr, mask) do

@@ -67,7 +67,7 @@ defmodule Zorb.Capsule.AssemblerTest do
       pruned_v3 = Assembler.prune_version_branches(ast, 3)
       assert Macro.to_string(pruned_v3) =~ "v3_logic()"
       refute Macro.to_string(pruned_v3) =~ "modern_logic()"
-      
+
       pruned_v5 = Assembler.prune_version_branches(ast, 5)
       assert Macro.to_string(pruned_v5) =~ "modern_logic()"
       refute Macro.to_string(pruned_v5) =~ "v3_logic()"
@@ -85,7 +85,7 @@ defmodule Zorb.Capsule.AssemblerTest do
 
       pruned_v1 = Assembler.prune_version_branches(ast, 1)
       assert Macro.to_string(pruned_v1) =~ "v1_only()"
-      
+
       pruned_v3 = Assembler.prune_version_branches(ast, 3)
       refute Macro.to_string(pruned_v3) =~ "v1_only()"
     end
@@ -126,14 +126,14 @@ defmodule Zorb.Capsule.AssemblerTest do
         end
 
       pruned = Assembler.prune_version_branches(ast, 5)
-      
+
       expected =
         quote do
           defw test() do
             {:__block__, [], []}
           end
         end
-      
+
       assert Macro.to_string(pruned) == Macro.to_string(expected)
     end
   end
