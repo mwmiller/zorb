@@ -1,6 +1,19 @@
 # Zorb Compilation Performance Profile
 
-## Benchmark Results (Average of 3 story files)
+## Current Performance (v0.9.0)
+
+### Patcher Method (Default)
+- **Compilation time:** ~1ms
+- **Speedup:** 6000x over traditional
+- **Memory overhead:** 335 KB (all templates)
+- **Method:** Patch pre-compiled WASM templates with story data
+
+### Traditional Method (Debugging)
+- **Compilation time:** ~4000ms
+- **Use case:** Debugging and development only
+- **Method:** Full Elixir compilation pipeline
+
+## Traditional Compilation Breakdown
 
 | Phase | Time (ms) | % of Total |
 |-------|-----------|------------|
@@ -38,16 +51,13 @@ The actual WASM generation is relatively fast:
 ### AST Manipulation (<1%)
 Our pruning and transformation work is negligible - only ~35ms total.
 
-## Optimization Strategies
+## Optimization Strategy: WASM Patcher ✅ **IMPLEMENTED**
 
-### 1. WASM Linker ✅ **RECOMMENDED**
-Pre-compile interpreter to WASM, link with story data. Eliminates the 82% Elixir compilation cost.
+Pre-compile interpreter templates to WASM at compile-time, then patch with story data at runtime. Eliminates the 82% Elixir compilation cost.
 
-**Estimated speedup:** 5-10x (from ~4s to ~400-800ms)  
-**Complexity:** Medium (need WASM linker)  
-**Status:** Planned
-
-### 2. Skip Sourceror ❌ **NOT FEASIBLE**
+**Achieved speedup:** 6000x (from ~4s to ~1ms)  
+**Implementation:** Zorb.Templates + Zorb.Patcher + Watusi 0.4.0  
+**Status:** Complete (v0.9.0)
 Attempted to use `Code.compile_quoted/1` directly but our AST manipulation breaks the structure required by Orb macros.
 
 **Estimated speedup:** 1.1x  

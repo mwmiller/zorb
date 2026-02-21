@@ -214,7 +214,7 @@ defmodule Zorb.ProverTest do
     prover_path = Path.join(@prover_dir, "simple_test.z7")
     owner = self()
 
-    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: true)
+    {:ok, pid} = Zorb.Session.start_link(prover_path, notify_to: owner, cache: false)
 
     expect("units 0 by 0", 120_000, pid)
     answer(pid, "quit\n")

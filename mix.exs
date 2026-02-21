@@ -4,7 +4,7 @@ defmodule Zorb.MixProject do
   def project do
     [
       app: :zorb,
-      version: "0.8.0",
+      version: "0.9.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -21,6 +21,7 @@ defmodule Zorb.MixProject do
           "usage-rules.md",
           "CAPSULE_HOST.md",
           "CHANGELOG.md",
+          "PERFORMANCE.md",
           "ORB_CONCEPTS.md",
           "ZMACHINE.md"
         ]
@@ -29,7 +30,7 @@ defmodule Zorb.MixProject do
   end
 
   defp description do
-    "A high-performance Z-machine implementation that compiles stories into standalone WebAssembly capsules."
+    "A high-performance Z-machine implementation that compiles stories into standalone WebAssembly capsules with blazing-fast compilation (~1ms per story)."
   end
 
   defp package do
@@ -38,7 +39,7 @@ defmodule Zorb.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/mwmiller/zorb"},
       files:
-        ~w(lib mix.exs README.md LICENSE usage-rules.md CAPSULE_HOST.md CHANGELOG.md ORB_CONCEPTS.md ZMACHINE.md)
+        ~w(lib mix.exs README.md LICENSE usage-rules.md CAPSULE_HOST.md CHANGELOG.md PERFORMANCE.md ORB_CONCEPTS.md ZMACHINE.md)
     ]
   end
 
@@ -69,7 +70,7 @@ defmodule Zorb.MixProject do
   defp deps do
     [
       {:orb, "~> 0.2.2"},
-      {:watusi, "~> 0.3.0"},
+      {:watusi, "~> 0.4.0"},
       {:wasmex, "~> 0.14.0", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:usage_rules, "~> 0.1", only: [:dev, :test], runtime: false},
