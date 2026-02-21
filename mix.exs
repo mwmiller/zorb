@@ -69,7 +69,7 @@ defmodule Zorb.MixProject do
   defp deps do
     [
       {:orb, "~> 0.2.2"},
-      {:watusi, "~> 0.2.0"},
+      {:watusi, "~> 0.3.0"},
       {:wasmex, "~> 0.14.0", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:usage_rules, "~> 0.1", only: [:dev, :test], runtime: false},

@@ -14,8 +14,8 @@ defmodule Zorb.Capsule.Assembler do
   def assemble(story_data, module_name) do
     <<version::8, _::binary>> = story_data
 
-    # 1. Read fat AST
-    ast = fat_ast()
+    # 1. Read fat AST and prune version branches
+    ast = fat_ast() |> prune_version_branches(version)
 
     # 2. Prepare Data
     {gb, smb, db, ab, otb} = extract_header_fields(story_data)
@@ -205,6 +205,7 @@ defmodule Zorb.Capsule.Assembler do
           return(I32.const(0))
         end
       end
+      |> prune_version_branches(version)
 
     mdict_definition_ast =
       quote do
@@ -222,6 +223,7 @@ defmodule Zorb.Capsule.Assembler do
           return(I32.const(1))
         end
       end
+      |> prune_version_branches(version)
 
     do_tokenise_definition_ast =
       quote do
@@ -1025,6 +1027,7 @@ defmodule Zorb.Capsule.Assembler do
           write_word(I32.add(I32.add(p, 32), I32.mul(word_count, 4)), 0)
         end
       end
+      |> prune_version_branches(version)
 
     # 4. Transform AST in a single pass
     final_ast =
@@ -1109,31 +1112,123 @@ defmodule Zorb.Capsule.Assembler do
   end
 
   def prune_version_branches(ast, version) do
-    Macro.prewalk(ast, fn
-      {:defw, meta, args} ->
-        new_args =
-          Enum.map(args, fn
-            [do: body] -> [do: prune_version_branches_in_block(body, version)]
-            other -> other
-          end)
-
-        {:defw, meta, new_args}
-
-      {:if, _, _} = node ->
-        prune_version_branches_in_block(node, version)
-
-      node ->
-        node
+    result = Macro.prewalk(ast, fn
+      {:defmodule, meta, args} ->
+        new_args = Enum.map(args, fn
+          [{{:__block__, _, [:do]}, body}] ->
+            [{{:__block__, [], [:do]}, prune_module_body(body, version)}]
+          [do: body] ->
+            [do: prune_module_body(body, version)]
+          other -> other
+        end)
+        {:defmodule, meta, new_args}
+      
+      {func_type, _, _} = node when func_type in [:defw, :defwp] ->
+        prune_function(node, version)
+      
+      node -> node
+    end)
+    
+    # Remove any nil nodes
+    Macro.prewalk(result, fn
+      nil -> {:__block__, [], []}
+      node -> node
     end)
   end
+  
+  defp prune_module_body(body, version) do
+    case body do
+      {:__block__, meta, children} ->
+        pruned_children = Enum.map(children, &prune_function(&1, version))
+        {:__block__, meta, pruned_children}
+      other -> other
+    end
+  end
+  
+  defp prune_function({func_type, func_meta, args}, version) when func_type in [:defw, :defwp] do
+    pruned_args = case args do
+      # 4 args: [name, return_type, local_vars, body_kwlist]
+      [name, return_type, local_vars, body_kwlist] when is_list(body_kwlist) ->
+        [name, return_type, local_vars, prune_kwlist(body_kwlist, version)]
+      
+      # 3 args: [name, return_type, body_kwlist]
+      [name, return_type, body_kwlist] when is_list(body_kwlist) ->
+        [name, return_type, prune_kwlist(body_kwlist, version)]
+      
+      # 2 args: [name, body_kwlist]
+      [name, body_kwlist] when is_list(body_kwlist) ->
+        [name, prune_kwlist(body_kwlist, version)]
+      
+      # Fallback: try to find and prune any keyword list
+      other_args ->
+        Enum.map(other_args, fn
+          kwlist when is_list(kwlist) ->
+            if Keyword.keyword?(kwlist) do
+              prune_kwlist(kwlist, version)
+            else
+              kwlist
+            end
+          arg -> arg
+        end)
+    end
+    
+    {func_type, func_meta, pruned_args}
+  end
+  
+  defp prune_function(other, _version), do: other
+  
+  defp prune_kwlist(kwlist, version) do
+    Enum.map(kwlist, fn
+      {{:__block__, _, [:do]}, func_body} -> 
+        pruned = prune_version_branches_in_block(func_body, version)
+        cleaned = clean_empty_statements(pruned)
+        {{:__block__, [], [:do]}, cleaned}
+      {key, func_body} when key == :do -> 
+        pruned = prune_version_branches_in_block(func_body, version)
+        cleaned = clean_empty_statements(pruned)
+        {key, cleaned}
+      other -> other
+    end)
+  end
+  
+  # Remove empty blocks that appear as statements, but preserve them in if/else bodies
+  defp clean_empty_statements(ast) do
+    ast
+    |> flatten_nested_blocks()
+    |> remove_empty_blocks_from_lists()
+  end
+  
+  # Flatten blocks that contain other blocks as direct children
+  defp flatten_nested_blocks(ast) do
+    Macro.prewalk(ast, fn
+      {:__block__, meta, children} when is_list(children) ->
+        flattened = Enum.flat_map(children, fn
+          {:__block__, _, nested_children} when is_list(nested_children) -> nested_children
+          other -> [other]
+        end)
+        {:__block__, meta, flattened}
+      node -> node
+    end)
+  end
+  
+  # Remove empty blocks from statement lists
+  defp remove_empty_blocks_from_lists(ast) do
+    Macro.postwalk(ast, fn
+      {:__block__, meta, children} when is_list(children) ->
+        filtered = Enum.reject(children, &is_empty_block?/1)
+        {:__block__, meta, filtered}
+      node -> node
+    end)
+  end
+  
+  defp is_empty_block?({:__block__, _, []}), do: true
+  defp is_empty_block?(nil), do: true
+  defp is_empty_block?(_), do: false
 
-  defp prune_version_branches_in_block(nil, _version), do: quote(do: Orb.DSL.nop())
+  defp prune_version_branches_in_block(nil, _version), do: {:__block__, [], []}
 
   defp prune_version_branches_in_block(body, version) do
-    Macro.prewalk(body, fn
-      nil ->
-        quote(do: Orb.DSL.nop())
-
+    Macro.postwalk(body, fn
       {:if, meta, [condition, blocks]} ->
         case condition do
           {{:., _, [target, op]}, _, [{:@, _, [{v_name, _, _}]}, v]}
@@ -1141,20 +1236,48 @@ defmodule Zorb.Capsule.Assembler do
             target_str = Macro.to_string(target)
 
             if target_str in ["I32", "Orb.I32"] do
-              yes = blocks[:do] || quote(do: Orb.DSL.nop())
-              no = blocks[:else] || quote(do: Orb.DSL.nop())
+              # Extract version number from AST
+              version_num = case v do
+                {{:., _, [{:__aliases__, _, [:I32]}, :const]}, _, [{:__block__, _, [n]}]} when is_integer(n) -> n
+                {{:., _, [:I32, :const]}, _, [{:__block__, _, [n]}]} when is_integer(n) -> n
+                {{:., _, [{:__aliases__, _, [:I32]}, :const]}, _, [n]} when is_integer(n) -> n
+                {{:., _, [:I32, :const]}, _, [n]} when is_integer(n) -> n
+                {:__block__, _, [n]} when is_integer(n) -> n
+                n when is_integer(n) -> n
+                _ -> nil
+              end
+              
+              if version_num do
+                # Sourceror wraps keys in {:__block__, meta, [key]}
+                yes = Enum.find_value(blocks, {:__block__, [], []}, fn
+                  {{:__block__, _, [:do]}, value} -> value
+                  {:do, value} -> value
+                  _ -> nil
+                end)
+                
+                no = Enum.find_value(blocks, {:__block__, [], []}, fn
+                  {{:__block__, _, [:else]}, value} -> value
+                  {:else, value} -> value
+                  _ -> nil
+                end)
 
-              take_yes =
-                case op do
-                  :ge_u -> version >= v
-                  :le_u -> version <= v
-                  :lt_u -> version < v
-                  :gt_u -> version > v
-                  :eq -> version == v
-                  :ne -> version != v
-                end
+                take_yes =
+                  case op do
+                    :ge_u -> version >= version_num
+                    :le_u -> version <= version_num
+                    :lt_u -> version < version_num
+                    :gt_u -> version > version_num
+                    :eq -> version == version_num
+                    :ne -> version != version_num
+                  end
 
-              if take_yes, do: yes, else: no
+                result = if take_yes, do: yes, else: no
+                
+                # Don't unwrap - let parent context handle it
+                result
+              else
+                {:if, meta, [condition, blocks]}
+              end
             else
               {:if, meta, [condition, blocks]}
             end
