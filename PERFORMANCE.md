@@ -24,7 +24,11 @@ The overwhelming bottleneck is `Code.compile_string/1` compiling the generated O
 4. Loads the module
 
 ### Secondary Cost: Sourceror (10%)
-Converting the AST back to source code takes 400ms. This is necessary because we need to compile the Elixir code.
+Converting the AST back to source code takes 400ms. This is **necessary** because:
+- `Code.compile_quoted/1` requires strict AST structure
+- Our AST manipulation (replacing nodes, pruning branches) breaks the structure
+- Sourceror normalizes the AST by round-tripping through source code
+- Attempting to skip this step causes `FunctionClauseError` in Orb macros
 
 ### Orb + Watusi (5%)
 The actual WASM generation is relatively fast:
@@ -36,22 +40,27 @@ Our pruning and transformation work is negligible - only ~35ms total.
 
 ## Optimization Strategies
 
-### 1. WASM Linker (Your Approach) ✅
+### 1. WASM Linker ✅ **RECOMMENDED**
 Pre-compile interpreter to WASM, link with story data. Eliminates the 82% Elixir compilation cost.
 
-**Estimated speedup:** 5-10x (from ~4s to ~400-800ms)
+**Estimated speedup:** 5-10x (from ~4s to ~400-800ms)  
+**Complexity:** Medium (need WASM linker)  
+**Status:** Planned
 
-### 2. Skip Sourceror.to_string
-If we could pass AST directly to Orb without round-tripping through source code, we'd save 10%.
+### 2. Skip Sourceror ❌ **NOT FEASIBLE**
+Attempted to use `Code.compile_quoted/1` directly but our AST manipulation breaks the structure required by Orb macros.
 
-**Estimated speedup:** 1.1x
+**Estimated speedup:** 1.1x  
+**Complexity:** High (requires rewriting AST manipulation to preserve structure)  
+**Status:** Not worth the effort for 10% gain
 
 ### 3. Persistent BEAM Module
 Keep the compiled Orb module in memory, only regenerate WASM with new data.
 
-**Complexity:** High (requires runtime code generation)
-**Estimated speedup:** 5x
+**Estimated speedup:** 5x  
+**Complexity:** High (requires runtime code generation)  
+**Status:** Superseded by linker approach
 
 ## Recommendation
 
-**Build the WASM linker.** It's the cleanest solution and eliminates the dominant bottleneck.
+**Build the WASM linker.** It's the cleanest solution and eliminates the dominant bottleneck (82%).

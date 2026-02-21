@@ -47,16 +47,13 @@ defmodule Zorb.Capsule do
     assemble_time = System.monotonic_time(:millisecond) - assemble_start
     Logger.debug("Total Assembler.assemble: #{assemble_time}ms")
 
-    Zorb.Config.ensure_dirs!()
-    File.write!(Path.join(Zorb.Config.working_dir(), "last_assembled.ex"), source)
-
     elixir_start = System.monotonic_time(:millisecond)
 
     try do
       Code.compile_string(source)
-    catch
-      kind, e ->
-        IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{kind} #{inspect(e)}")
+    rescue
+      e ->
+        IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{inspect(e)}")
         reraise e, __STACKTRACE__
     end
 

@@ -1134,8 +1134,6 @@ defmodule Zorb.Capsule.Assembler do
     sourceror_time = System.monotonic_time(:millisecond) - sourceror_start
     Logger.debug("Sourceror.to_string: #{sourceror_time}ms")
 
-    File.write!(Path.join(Zorb.Config.working_dir(), "last_bespoke_source.ex"), source_code)
-
     {source_code, nil}
   end
 
