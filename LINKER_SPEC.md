@@ -1,9 +1,11 @@
-# WASM Linker Requirements for Zorb
+# WASM Patcher Requirements for Zorb
 
 ## Overview
-Pre-compile the Z-machine interpreter to WASM once per version (V1-V8), then link it with story-specific data to produce game capsules in ~400ms instead of ~4000ms.
+Pre-compile the Z-machine interpreter to WASM once per version (V1-V8), then **patch** it with story-specific data to produce game capsules in ~400ms instead of ~4000ms.
 
-## Required WASM Linker Features
+**Note:** We don't need a full linker (which combines multiple modules). We just need a **patcher** that modifies data segments and globals in a pre-compiled WASM module.
+
+## Required WASM Patcher Features
 
 ### 1. Data Segment Injection ⭐ CRITICAL
 Replace or inject data segments at specific memory addresses.
@@ -83,14 +85,30 @@ Where `<MASK>` = dictionary_hash_table_size - 1 (typically 2047 for 2048 entries
 
 **WASM Spec:** [Code Section](https://webassembly.github.io/spec/core/binary/modules.html#code-section) (Section 10)
 
-## Minimal Viable Linker
+## Minimal Viable Patcher
 
 To get this working, you **MUST** support:
 
-1. ✅ **Data segment replacement** (Section 11)
-2. ✅ **Global initialization** (Section 6)
+1. ✅ **Patch data segments** (Section 11) - Replace bytes at specific offsets
+2. ✅ **Patch global initializers** (Section 6) - Change initial values
 
 That's it. Everything else is optimization.
+
+## Implementation Approach
+
+### Option A: Binary Patching (Simplest)
+Directly modify the WASM binary bytes:
+1. Parse WASM to find data section and global section offsets
+2. Replace bytes in those sections
+3. Update section sizes if needed
+4. Done
+
+### Option B: Parse → Modify → Serialize
+1. Parse WASM to AST
+2. Modify data segments and globals
+3. Serialize back to binary
+
+Both work. Option A is faster if you know the WASM structure.
 
 ## Pre-compilation Strategy
 
@@ -103,7 +121,7 @@ for version <- [1, 2, 3, 4, 5, 7, 8] do
 end
 ```
 
-### Step 2: Link at Runtime
+### Step 2: Patch at Runtime
 ```elixir
 def compile(story_path) do
   story_data = File.read!(story_path)
@@ -112,10 +130,10 @@ def compile(story_path) do
   template = File.read!("templates/interpreter_v#{version}.wasm")
   
   # Extract story-specific data
-  {globals, data_segments} = prepare_link_data(story_data)
+  {globals, data_segments} = prepare_patch_data(story_data)
   
-  # Link
-  wasm = Linker.link(template, globals: globals, data: data_segments)
+  # Patch (not link!)
+  wasm = Watusi.Patcher.patch(template, globals: globals, data: data_segments)
   
   wasm
 end
@@ -138,21 +156,21 @@ data_segments = [
 ]
 ```
 
-## Testing the Linker
+## Testing the Patcher
 
 Minimal test case:
 ```elixir
 # 1. Compile a story the old way
 wasm_old = Zorb.Capsule.compile("test.z5")
 
-# 2. Compile using linker
-wasm_new = Zorb.Linker.compile("test.z5")
+# 2. Compile using patcher
+wasm_new = Zorb.Patcher.compile("test.z5")
 
 # 3. Both should produce identical behavior
 assert run_story(wasm_old, "look") == run_story(wasm_new, "look")
 ```
 
-## Questions for Your Linker
+## Questions for Your Patcher
 
 1. Can it replace data segments at arbitrary offsets?
 2. Can it set global variable initial values?
@@ -161,3 +179,10 @@ assert run_story(wasm_old, "look") == run_story(wasm_new, "look")
 5. Can it work with WASM modules that have no start function?
 
 If yes to all 5, you're good to go!
+
+## Why Patcher > Linker
+
+- **Simpler:** No symbol resolution, no module merging
+- **Faster:** Direct byte manipulation
+- **Sufficient:** We only modify data, not code
+- **Watusi-friendly:** Already has WASM parsing/serialization
