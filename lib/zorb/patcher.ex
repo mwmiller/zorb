@@ -17,19 +17,16 @@ defmodule Zorb.Patcher do
   identical WASM output.
   """
   def compile(story_path) when is_binary(story_path) do
-    story_data = File.read!(story_path)
-    compile_data(story_data)
+    story_path
+    |> File.read!()
+    |> compile_data()
   end
 
   def compile_data(story_data) when is_binary(story_data) do
     <<version::8, _::binary>> = story_data
 
-    template = Templates.get(version)
-    patch_data = Data.extract(story_data)
-
-    Watusi.Patcher.patch(template,
-      globals: patch_data.globals,
-      data: patch_data.data_segments
-    )
+    version
+    |> Templates.get()
+    |> Watusi.Patcher.patch(Data.extract(story_data))
   end
 end

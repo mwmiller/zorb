@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.2] - 2026-02-23
+
+### Improved
+- Reduced impedance mismatch between Zorb and Watusi patching
+- Got rid of stupid LLM written Hex desciption in favor of a more concise and accurate one
+
 ## [0.9.1] - 2026-02-21
 
 ### Fixed

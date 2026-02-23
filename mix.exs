@@ -4,7 +4,7 @@ defmodule Zorb.MixProject do
   def project do
     [
       app: :zorb,
-      version: "0.9.1",
+      version: "0.9.2",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -33,7 +33,7 @@ defmodule Zorb.MixProject do
   end
 
   defp description do
-    "A high-performance Z-machine implementation that compiles stories into standalone WebAssembly capsules with blazing-fast compilation (~1ms per story)."
+    "Z-machine implementation compiling stories into standalone WebAssembly capsules"
   end
 
   defp package do

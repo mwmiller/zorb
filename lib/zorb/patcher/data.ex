@@ -9,9 +9,9 @@ defmodule Zorb.Patcher.Data do
   @doc """
   Extract all data needed to patch a WASM template for the given story.
 
-  Returns a map with:
+  Returns a keyword list with:
   - `:globals` - Map of global indices to values (for Watusi.Patcher)
-  - `:data_segments` - List of {offset, binary} tuples for memory segments
+  - `:data` - List of {offset, binary} tuples for memory segments
   """
   def extract(story_data) do
     <<version::8, _::binary>> = story_data
@@ -60,16 +60,16 @@ defmodule Zorb.Patcher.Data do
       # 28+: @capabilities, @zscii_state, etc. (not patchable)
     }
 
-    %{
+    [
       globals: globals_by_index,
-      data_segments: [
+      data: [
         {0x00000, story_data},
         {0x80000, unicode},
         {0x81000, alphabets},
         {0x82000, hash_table},
         {0x8A000, metadata}
       ]
-    }
+    ]
   end
 
   defp generate_alphabets(version) do
