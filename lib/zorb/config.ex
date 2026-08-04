@@ -92,15 +92,17 @@ defmodule Zorb.Config do
   defp prune_by_size(_files, nil), do: :ok
 
   defp prune_by_size(files, limit) do
-    Enum.reduce_while(files, 0, fn %{path: path, size: size}, acc ->
-      new_acc = acc + size
+    _total =
+      Enum.reduce(files, 0, fn %{path: path, size: size}, acc ->
+        new_acc = acc + size
 
-      if new_acc > limit do
-        File.rm!(path)
-        {:cont, new_acc}
-      else
-        {:cont, new_acc}
-      end
-    end)
+        if new_acc > limit do
+          File.rm!(path)
+        end
+
+        new_acc
+      end)
+
+    :ok
   end
 end

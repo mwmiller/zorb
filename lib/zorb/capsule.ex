@@ -21,6 +21,18 @@ defmodule Zorb.Capsule do
   def compile(story_path, opts \\ []) when is_binary(story_path) do
     story_data = File.read!(story_path)
 
+    <<version::8, _::binary>> = story_data
+
+    if version == 6 do
+      raise ArgumentError,
+            "Zorb does not support Z-machine version 6 (graphical). Supported versions: 1-5, 7, 8."
+    end
+
+    if version not in [1, 2, 3, 4, 5, 7, 8] do
+      raise ArgumentError,
+            "Unsupported Z-machine version: #{version}. Supported versions: 1-5, 7, 8."
+    end
+
     if Keyword.get(opts, :cache, false) do
       case load_from_cache(story_data) do
         {:ok, wasm} ->
@@ -52,7 +64,7 @@ defmodule Zorb.Capsule do
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 
-    {source, _data} = Assembler.assemble(story_data, module_name)
+    {source, payload_path} = Assembler.assemble(story_data, module_name)
 
     try do
       Code.compile_string(source)
@@ -68,6 +80,11 @@ defmodule Zorb.Capsule do
       |> Watusi.to_wasm()
 
     File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wasm"), wasm)
+
+    if is_binary(payload_path) do
+      File.rm!(payload_path)
+    end
+
     wasm
   end
 
@@ -90,8 +107,13 @@ defmodule Zorb.Capsule do
   end
 
   defp cache_hash(story_data) do
+    watusi_version = Application.spec(:watusi, :vsn) || "unknown"
+    orb_version = Application.spec(:orb, :vsn) || "unknown"
+
     :crypto.hash(:sha256, [
       @compiler_version,
+      watusi_version,
+      orb_version,
       Integer.to_string(byte_size(story_data)),
       story_data
     ])

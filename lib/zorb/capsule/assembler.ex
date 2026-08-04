@@ -30,86 +30,9 @@ defmodule Zorb.Capsule.Assembler do
         false -> <<>>
       end
 
-    metadata = Zorb.Inspector.analyze(story_data)
+    metadata_bin = generate_metadata_binary(story_data)
 
-    metadata_bin =
-      <<metadata.version::8, metadata.serial::binary-size(6), 0::8, metadata.command_prefix::8,
-        0::56>> <>
-        String.pad_trailing(String.slice(metadata.chat_prefix, 0, 63), 64, <<0>>) <>
-        String.pad_trailing(String.slice(metadata.channel_prefix, 0, 63), 64, <<0>>)
-
-    # Spec 3.5.3: Alphabets. Note: zchars 0-5 are special, table starts at zchar 6.
-    a0 = Enum.to_list(?a..?z)
-    a1 = Enum.to_list(?A..?Z)
-
-    # V1 A2: Spec 3.5.4
-    a2_v1 = [
-      ?\s,
-      ?0,
-      ?1,
-      ?2,
-      ?3,
-      ?4,
-      ?5,
-      ?6,
-      ?7,
-      ?8,
-      ?9,
-      ?.,
-      ?,,
-      ?!,
-      ??,
-      ?_,
-      ?#,
-      ?',
-      ?\",
-      ?/,
-      ?\\,
-      ?<,
-      ?-,
-      ?:,
-      ?(,
-      ?)
-    ]
-
-    # V2+ A2: Spec 3.5.3
-    a2_v2 = [
-      0,
-      13,
-      ?0,
-      ?1,
-      ?2,
-      ?3,
-      ?4,
-      ?5,
-      ?6,
-      ?7,
-      ?8,
-      ?9,
-      ?.,
-      ?,,
-      ?!,
-      ??,
-      ?_,
-      ?#,
-      ?',
-      ?\",
-      ?/,
-      ?\\,
-      ?-,
-      ?:,
-      ?(,
-      ?)
-    ]
-
-    # Prune unused alphabet based on version
-    alphabets =
-      case version do
-        1 -> a0 ++ a1 ++ a2_v1 ++ List.duplicate(0, 26)
-        _ -> a0 ++ a1 ++ List.duplicate(0, 26) ++ a2_v2
-      end
-
-    if length(alphabets) != 104, do: raise("Wrong alphabet size: #{length(alphabets)}")
+    alphabets = generate_alphabets(version)
 
     # Create a payload of baked data to be loaded during module compilation
     chunk_size = 4096
@@ -1116,7 +1039,7 @@ defmodule Zorb.Capsule.Assembler do
 
     source_code = Sourceror.to_string(final_ast)
 
-    {source_code, nil}
+    {source_code, payload_path}
   end
 
   def prune_version_branches(ast, version) do
@@ -1413,167 +1336,124 @@ defmodule Zorb.Capsule.Assembler do
   end
 
   defp get_encoded_words(story_data, addr, version) when version <= 3 do
-    <<_::binary-size(addr), w1::16-big, w2::16-big, _::binary>> = story_data
+    <<_::binary-size(^addr), w1::16-big, w2::16-big, _::binary>> = story_data
     {w1, w2, 0}
   end
 
   defp get_encoded_words(story_data, addr, _version) do
-    <<_::binary-size(addr), w1::16-big, w2::16-big, w3::16-big, _::binary>> = story_data
+    <<_::binary-size(^addr), w1::16-big, w2::16-big, w3::16-big, _::binary>> = story_data
     {w1, w2, w3}
   end
 
   defp insert_at_slot(table, slot, w1, w2, w3, addr, mask) do
+    insert_at_slot(table, slot, w1, w2, w3, addr, mask, 0)
+  end
+
+  defp insert_at_slot(table, slot, w1, w2, w3, addr, mask, probes) do
+    if probes >= 2048 do
+      raise "Dictionary hash table overflow: more than 2048 entries (table full). " <>
+              "This story has too many dictionary words for the fixed-size hash table."
+    end
+
     case elem(table, slot) do
       {0, 0, 0, 0} -> put_elem(table, slot, {w1, w2, w3, addr})
-      _ -> insert_at_slot(table, Bitwise.band(slot + 1, mask), w1, w2, w3, addr, mask)
+      _ -> insert_at_slot(table, Bitwise.band(slot + 1, mask), w1, w2, w3, addr, mask, probes + 1)
     end
   end
 
-  def generate_unicode_binary do
-    table = [
-      0x00E4,
-      0x00F6,
-      0x00FC,
-      0x00C4,
-      0x00D6,
-      0x00DC,
-      0x00DF,
-      0x00BB,
-      0x00AB,
-      0x00EB,
-      0x00EF,
-      0x00FF,
-      0x00CB,
-      0x00CF,
-      0x00E1,
-      0x00E9,
-      0x00ED,
-      0x00F3,
-      0x00FA,
-      0x00FD,
-      0x00C1,
-      0x00C9,
-      0x00CD,
-      0x00D3,
-      0x00DA,
-      0x00DD,
-      0x00E0,
-      0x00E8,
-      0x00EC,
-      0x00F2,
-      0x00F9,
-      0x00C0,
-      0x00C8,
-      0x00CC,
-      0x00D2,
-      0x00D9,
-      0x00E2,
-      0x00EA,
-      0x00EE,
-      0x00F4,
-      0x00FB,
-      0x00C2,
-      0x00CA,
-      0x00CE,
-      0x00D4,
-      0x00DB,
-      0x00E5,
-      0x00C5,
-      0x00F8,
-      0x00D8,
-      0x00E3,
-      0x00F1,
-      0x00F5,
-      0x00C3,
-      0x00D1,
-      0x00D5,
-      0x00E6,
-      0x00C6,
-      0x00E7,
-      0x00C7,
-      0x00FE,
-      0x00F0,
-      0x00DE,
-      0x00D0,
-      0x00A3,
-      0x0153,
-      0x0152,
-      0x00A1,
-      0x00BF,
-      0x00AA,
-      0x00BA,
-      0x00E6,
-      0x00C6,
-      0x00F8,
-      0x00D8,
-      0x00E5,
-      0x00C5,
-      0x00E7,
-      0x00C7,
-      0x00F0,
-      0x00D0,
-      0x00F1,
-      0x00D1,
-      0x00F5,
-      0x00D5,
-      0x00FE,
-      0x00DE,
-      0x00A9,
-      2122,
-      0x20AC,
-      0x0024,
-      0x0192,
-      0x03B1,
-      0x03B2,
-      0x03B3,
-      0x03B4,
-      0x03B5,
-      0x03B6,
-      0x03B7,
-      0x03B8,
-      0x03B9,
-      0x03BA,
-      0x03BB,
-      0x03BC,
-      0x03BD,
-      0x03BE,
-      0x03BF,
-      0x03C0,
-      0x03C1,
-      0x03C2,
-      0x03C3,
-      0x03C4,
-      0x03C5,
-      0x03C6,
-      0x03C7,
-      0x03C8,
-      0x03C9,
-      0x0391,
-      0x0392,
-      0x0393,
-      0x0394,
-      0x0395,
-      0x0396,
-      0x0397,
-      0x0398,
-      0x0399,
-      0x039A,
-      0x039B,
-      0x039C,
-      0x039D,
-      0x039E,
-      0x039F,
-      0x03A0,
-      0x03A1,
-      0x03A3,
-      0x03A4,
-      0x03A5,
-      0x03A6,
-      0x03A7,
-      0x03A8,
-      0x03A9
+  @doc """
+  Generates the Z-machine alphabet data for the given version.
+
+  Returns a list of 104 byte values: A0 (26) + A1 (26) + A2 (26) + A2 (26).
+  """
+  def generate_alphabets(version) do
+    a0 = Enum.to_list(?a..?z)
+    a1 = Enum.to_list(?A..?Z)
+
+    a2_v1 = [
+      ?\s,
+      ?0,
+      ?1,
+      ?2,
+      ?3,
+      ?4,
+      ?5,
+      ?6,
+      ?7,
+      ?8,
+      ?9,
+      ?.,
+      ?,,
+      ?!,
+      ??,
+      ?_,
+      ?#,
+      ?',
+      ?\",
+      ?/,
+      ?\\,
+      ?<,
+      ?-,
+      ?:,
+      ?(,
+      ?)
     ]
 
-    for u <- table, into: <<>>, do: <<u::16-big>>
+    a2_v2 = [
+      0,
+      13,
+      ?0,
+      ?1,
+      ?2,
+      ?3,
+      ?4,
+      ?5,
+      ?6,
+      ?7,
+      ?8,
+      ?9,
+      ?.,
+      ?,,
+      ?!,
+      ??,
+      ?_,
+      ?#,
+      ?',
+      ?\",
+      ?/,
+      ?\\,
+      ?-,
+      ?:,
+      ?(,
+      ?)
+    ]
+
+    alphabets =
+      case version do
+        1 -> a0 ++ a1 ++ a2_v1 ++ List.duplicate(0, 26)
+        _ -> a0 ++ a1 ++ List.duplicate(0, 26) ++ a2_v2
+      end
+
+    if length(alphabets) != 104 do
+      raise "Wrong alphabet size: #{length(alphabets)}"
+    end
+
+    alphabets
+  end
+
+  @doc """
+  Generates the metadata binary for the given story data.
+  """
+  def generate_metadata_binary(story_data) do
+    metadata = Zorb.Inspector.analyze(story_data)
+
+    <<metadata.version::8, metadata.serial::binary-size(6), 0::8, metadata.command_prefix::8,
+      0::56>> <>
+      String.pad_trailing(String.slice(metadata.chat_prefix, 0, 63), 64, <<0>>) <>
+      String.pad_trailing(String.slice(metadata.channel_prefix, 0, 63), 64, <<0>>)
+  end
+
+  def generate_unicode_binary do
+    for u <- Zorb.Interpreter.unicode_table(), into: <<>>, do: <<u::16-big>>
   end
 end

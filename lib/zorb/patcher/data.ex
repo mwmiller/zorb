@@ -30,11 +30,11 @@ defmodule Zorb.Patcher.Data do
         false -> <<>>
       end
 
-    alphabets = generate_alphabets(version)
-    metadata = generate_metadata(story_data)
+    alphabets = Assembler.generate_alphabets(version) |> :binary.list_to_bin()
+    metadata = Assembler.generate_metadata_binary(story_data)
 
     # Map global names to their indices in the WASM global section
-    # Order must match the global block in assembler.ex lines 141-170
+    # Order must match the global block in assemble/2 (global_block_ast)
     globals_by_index = %{
       # 0: @pc (not patchable, always 0)
       1 => version,
@@ -70,85 +70,5 @@ defmodule Zorb.Patcher.Data do
         {0x8A000, metadata}
       ]
     ]
-  end
-
-  defp generate_alphabets(version) do
-    a0 = Enum.to_list(?a..?z)
-    a1 = Enum.to_list(?A..?Z)
-
-    a2_v1 = [
-      ?\s,
-      ?0,
-      ?1,
-      ?2,
-      ?3,
-      ?4,
-      ?5,
-      ?6,
-      ?7,
-      ?8,
-      ?9,
-      ?.,
-      ?,,
-      ?!,
-      ??,
-      ?_,
-      ?#,
-      ?',
-      ?\",
-      ?/,
-      ?\\,
-      ?<,
-      ?-,
-      ?:,
-      ?(,
-      ?)
-    ]
-
-    a2_v2 = [
-      0,
-      13,
-      ?0,
-      ?1,
-      ?2,
-      ?3,
-      ?4,
-      ?5,
-      ?6,
-      ?7,
-      ?8,
-      ?9,
-      ?.,
-      ?,,
-      ?!,
-      ??,
-      ?_,
-      ?#,
-      ?',
-      ?\",
-      ?/,
-      ?\\,
-      ?-,
-      ?:,
-      ?(,
-      ?)
-    ]
-
-    alphabets =
-      case version do
-        1 -> a0 ++ a1 ++ a2_v1 ++ List.duplicate(0, 26)
-        _ -> a0 ++ a1 ++ List.duplicate(0, 26) ++ a2_v2
-      end
-
-    :binary.list_to_bin(alphabets)
-  end
-
-  defp generate_metadata(story_data) do
-    metadata = Zorb.Inspector.analyze(story_data)
-
-    <<metadata.version::8, metadata.serial::binary-size(6), 0::8, metadata.command_prefix::8,
-      0::56>> <>
-      String.pad_trailing(String.slice(metadata.chat_prefix, 0, 63), 64, <<0>>) <>
-      String.pad_trailing(String.slice(metadata.channel_prefix, 0, 63), 64, <<0>>)
   end
 end
