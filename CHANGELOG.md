@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.0] - 2026-08-04
+
+### Changed
+- Upgraded Watusi to 0.6.2 (spec-suite byte parity with `wasm-tools`, GC/ref proposals)
+- Upgraded `usage_rules` to 1.2, `sourceror` to 1.12, `ex_doc` to 0.40, `credo` to 1.7.19
+
+### Fixed
+- Cache invalidation now accounts for the Watusi and Orb versions, preventing stale capsules after dependency upgrades
+- Dictionary hash table generation now raises a clear error instead of looping forever when a story exceeds the 2048-entry capacity
+- Unsupported Z-machine versions (including V6) raise a clear `ArgumentError` at compile time
+- Eliminated compiler warnings (Elixir 1.20 bitstring pin operators, unused requires)
+
+### Maintainability
+- Consolidated duplicated alphabet, metadata, and Unicode table generation into a single shared data generator used by both patcher and traditional compilation
+- Temporary payload files are cleaned up after traditional compilation
+
 ## [0.9.2] - 2026-02-23
 
 ### Improved
