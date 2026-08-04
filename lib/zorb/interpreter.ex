@@ -2,7 +2,6 @@ defmodule Zorb.Interpreter do
   @moduledoc false
   use Orb
 
-  require Zorb.Interpreter.Types
   alias Zorb.Capsule.Host
   alias Zorb.Interpreter.Types, as: T
 

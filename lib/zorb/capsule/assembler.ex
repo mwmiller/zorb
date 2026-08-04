@@ -3,7 +3,6 @@ defmodule Zorb.Capsule.Assembler do
   # credo:disable-for-this-file Credo.Check.Refactor.Nesting
   # credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
   @moduledoc false
-  require Logger
 
   @interpreter_source_path Path.expand("../interpreter.ex", __DIR__)
   @external_resource @interpreter_source_path
@@ -1381,9 +1380,9 @@ defmodule Zorb.Capsule.Assembler do
   def prune_story_data(data, _opts), do: data
 
   def generate_dictionary_hash_table(story_data, dict_base, version) do
-    <<_::binary-size(dict_base), num_sep::8, _::binary>> = story_data
+    <<_::binary-size(^dict_base), num_sep::8, _::binary>> = story_data
     header_end = dict_base + 1 + num_sep
-    <<_::binary-size(header_end), entry_len::8, num_entries::16, _::binary>> = story_data
+    <<_::binary-size(^header_end), entry_len::8, num_entries::16, _::binary>> = story_data
     entries_start = header_end + 3
     table_size = 2048
     mask = table_size - 1

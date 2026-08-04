@@ -67,7 +67,6 @@ defmodule Zorb.Templates do
   Pre-compiled WASM templates for each Z-machine version.
   Templates are generated on first use and cached in persistent_term.
   """
-  require Logger
 
   alias Zorb.Templates.Generator
 

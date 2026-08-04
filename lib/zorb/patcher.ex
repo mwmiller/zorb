@@ -5,7 +5,6 @@ defmodule Zorb.Patcher do
   Pre-compiled interpreter templates are patched with story-specific data,
   reducing compilation time from ~4s to ~400ms.
   """
-  require Logger
 
   alias Zorb.Patcher.Data
   alias Zorb.Templates

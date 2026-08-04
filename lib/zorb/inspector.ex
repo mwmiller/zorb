@@ -11,7 +11,7 @@ defmodule Zorb.Inspector do
       serial::binary-size(6), _::binary>> =
       story_data
 
-    <<_::binary-size(dict_base), num_sep::8, seps::binary-size(num_sep), _::binary>> = story_data
+    <<_::binary-size(^dict_base), num_sep::8, seps::binary-size(num_sep), _::binary>> = story_data
     sep_list = :binary.bin_to_list(seps)
 
     # Use /, ~, ., - in that order if they are NOT used by the dictionary.
@@ -107,11 +107,9 @@ defmodule Zorb.Inspector do
   end
 
   defp extract_dictionary_words(story_data, version) do
-    import Bitwise
-
     <<_::8, _::8, _::16, _::16, _::16, dict_base::16, _::binary>> = story_data
 
-    <<_::binary-size(dict_base), num_sep::8, _::binary-size(num_sep), entry_len::8,
+    <<_::binary-size(^dict_base), num_sep::8, _::binary-size(num_sep), entry_len::8,
       num_entries::16, entries::binary>> = story_data
 
     # Limit scanning for efficiency if dictionary is huge, but scan enough for metadata.
