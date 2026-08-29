@@ -64,10 +64,11 @@ defmodule Zorb.Capsule do
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Capsule, "#{base_name}_#{unique}"])
 
-    {source, payload_path} = Assembler.assemble(story_data, module_name)
+    ast = Assembler.assemble(story_data, module_name)
 
     try do
-      Code.compile_string(source)
+      {{:module, ^module_name, _binary, _info}, _binding} =
+        Code.eval_quoted(ast, [], __ENV__)
     rescue
       e ->
         IO.puts(:stderr, "Zorb: ERROR compiling #{module_name}: #{inspect(e)}")
@@ -80,10 +81,6 @@ defmodule Zorb.Capsule do
       |> Watusi.to_wasm()
 
     File.write!(Path.join(Zorb.Config.working_dir(), "last_generated.wasm"), wasm)
-
-    if is_binary(payload_path) do
-      File.rm!(payload_path)
-    end
 
     wasm
   end

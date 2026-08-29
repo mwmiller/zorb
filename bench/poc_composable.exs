@@ -12,15 +12,15 @@ defmodule ComposablePOC do
     # Measure each stage separately
     IO.puts("## Current Pipeline Breakdown")
     
-    {t_assemble, {source, _}} = :timer.tc(fn ->
+    {t_assemble, ast} = :timer.tc(fn ->
       unique = :erlang.unique_integer([:positive])
       module_name = Module.concat([Zorb, Capsule, "POC_#{unique}"])
       Zorb.Capsule.Assembler.assemble(story_data, module_name)
     end)
     IO.puts("  Assembler:       #{format_time(t_assemble / 1000)}")
-    
+
     {t_compile, _} = :timer.tc(fn ->
-      Code.compile_string(source)
+      Code.eval_quoted(ast, [], __ENV__)
     end)
     IO.puts("  Elixir Compile:  #{format_time(t_compile / 1000)}")
     

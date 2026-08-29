@@ -18,19 +18,18 @@ defmodule Zorb.Profile do
     {t_read, _} = :timer.tc(fn -> File.read!(@test_story) end)
     IO.puts("  File.read!: #{format_time(t_read / 1000)}\n")
 
-    IO.puts("## Stage 2: Assembler (Sourceror-based)")
+    IO.puts("## Stage 2: Assembler (AST-based)")
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Capsule, "Profile_#{unique}"])
-    
-    {t_assemble, {source, _data}} = :timer.tc(fn -> 
+
+    {t_assemble, ast} = :timer.tc(fn ->
       Zorb.Capsule.Assembler.assemble(story_data, module_name)
     end)
-    IO.puts("  Assembler.assemble: #{format_time(t_assemble / 1000)}")
-    IO.puts("  Generated source: #{format_bytes(byte_size(source))}\n")
+    IO.puts("  Assembler.assemble: #{format_time(t_assemble / 1000)}\n")
 
     IO.puts("## Stage 3: Elixir Compilation")
-    {t_compile, _} = :timer.tc(fn -> Code.compile_string(source) end)
-    IO.puts("  Code.compile_string: #{format_time(t_compile / 1000)}\n")
+    {t_compile, _} = :timer.tc(fn -> Code.eval_quoted(ast, [], __ENV__) end)
+    IO.puts("  Code.eval_quoted: #{format_time(t_compile / 1000)}\n")
 
     IO.puts("## Stage 4: WAT Generation")
     {t_wat, wat} = :timer.tc(fn -> Orb.to_wat(module_name) end)

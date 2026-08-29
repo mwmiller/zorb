@@ -10,9 +10,10 @@ defmodule Zorb.Templates.Generator do
     unique = :erlang.unique_integer([:positive])
     module_name = Module.concat([Zorb, Templates, "V#{version}_#{unique}"])
 
-    {source, payload_path} = Assembler.assemble(placeholder_story, module_name)
+    ast = Assembler.assemble(placeholder_story, module_name)
 
-    Code.compile_string(source)
+    {{:module, ^module_name, _binary, _info}, _binding} =
+      Code.eval_quoted(ast, [], __ENV__)
 
     wasm =
       module_name
@@ -21,10 +22,6 @@ defmodule Zorb.Templates.Generator do
 
     :code.purge(module_name)
     :code.delete(module_name)
-
-    if is_binary(payload_path) do
-      File.rm!(payload_path)
-    end
 
     wasm
   end

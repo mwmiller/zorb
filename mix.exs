@@ -4,7 +4,7 @@ defmodule Zorb.MixProject do
   def project do
     [
       app: :zorb,
-      version: "0.10.0",
+      version: "0.12.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -74,10 +74,9 @@ defmodule Zorb.MixProject do
     [
       {:orb, "~> 0.2.2"},
       {:watusi, "~> 0.6.2"},
-      {:wasmex, "~> 0.14.0", only: [:dev, :test]},
+      {:wasmex, "~> 0.15.1", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:usage_rules, "~> 1.2", only: [:dev, :test], runtime: false},
-      {:sourceror, "~> 1.12"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
     ]
   end

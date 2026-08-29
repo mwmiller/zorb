@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.12.0] - 2026-08-29
+
+### Changed
+- Breaking: `Zorb.Capsule.Assembler.assemble/2` now returns a final Elixir AST instead of `{source_string, payload_path}`; compilation uses `Code.eval_quoted` directly
+- Breaking: Removed `Zorb.Config.payload_path/1`
+- Removed the Sourceror dependency — no more stringification roundtrip or payload temp files in the baking factory
+- Upgraded `watusi` to 0.6.3 and `wasmex` to 0.15.1
+
+### Improved
+- Assembler stage ~6x faster (95ms → 16ms on the reference story); string generation (~50ms) and payload file I/O eliminated entirely
+- Story data is baked into the capsule as byte-list literals at assemble time
+
+### Fixed
+- Quote-built AST nodes are stripped of hygiene metadata (`counter`, `context`, `imports`, `ambiguous_op`, `alias`) so identifier resolution works inside generated capsules
+- Pruned version branches no longer corrupt literal `nil` return types (e.g. `defw step(), nil`)
+- Embedded data binaries convert to byte lists for Orb's WAT encoder
+
 ## [0.10.0] - 2026-08-04
 
 ### Changed

@@ -6,7 +6,7 @@ defmodule Zorb.Capsule.Assembler do
 
   @interpreter_source_path Path.expand("../interpreter.ex", __DIR__)
   @external_resource @interpreter_source_path
-  @interpreter_ast Sourceror.parse_string!(File.read!(@interpreter_source_path))
+  @interpreter_ast Code.string_to_quoted!(File.read!(@interpreter_source_path))
 
   defp fat_ast, do: unquote(Macro.escape(@interpreter_ast))
 
@@ -34,25 +34,14 @@ defmodule Zorb.Capsule.Assembler do
 
     alphabets = generate_alphabets(version)
 
-    # Create a payload of baked data to be loaded during module compilation
+    # Bake story data directly into the AST in 4KiB chunks (binaries are O(1) to embed).
     chunk_size = 4096
 
     story_chunks =
-      for offset <- 0..(byte_size(pruned_story) - 1) |> Enum.take_every(chunk_size) do
+      for offset <- Enum.take_every(0..(byte_size(pruned_story) - 1), chunk_size) do
         len = min(chunk_size, byte_size(pruned_story) - offset)
-        {offset, :binary.bin_to_list(binary_part(pruned_story, offset, len))}
+        binary_part(pruned_story, offset, len)
       end
-
-    payload = %{
-      story_chunks: story_chunks,
-      unicode: :binary.bin_to_list(unicode),
-      hash: :binary.bin_to_list(hash_table)
-    }
-
-    payload_path = Zorb.Config.payload_path(version)
-
-    Zorb.Config.ensure_dirs!()
-    File.write!(payload_path, :erlang.term_to_binary(payload))
 
     # 3. Create Replacement ASTs
     host_registration_ast = quote(do: Orb.Import.register(Zorb.Capsule.Host))
@@ -100,247 +89,427 @@ defmodule Zorb.Capsule.Assembler do
       end
 
     memory_setup_ast = [
-      quote(do: Orb.Memory.pages(16)),
-      quote do
-        @payload File.read!(unquote(payload_path)) |> :erlang.binary_to_term()
+      quote(do: Orb.Memory.pages(16))
+      | Enum.map(
+          [
+            {0x80000, unicode},
+            {0x81000, alphabets},
+            {0x82000, hash_table},
+            {0x8A000, metadata_bin}
+          ] ++
+            Enum.with_index(story_chunks, fn chunk, i -> {i * chunk_size, chunk} end),
+          fn {offset, data} ->
+            # Orb.Data's ToWAT encoder iterates byte-by-byte and requires a
+            # list of integers rather than a binary.
+            bytes = if is_binary(data), do: :binary.bin_to_list(data), else: data
 
-        # Load story chunks
-        for {off, list} <- @payload.story_chunks do
-          Orb.Memory.initial_data!(off, u8: list)
-        end
-
-        Orb.Memory.initial_data!(0x80000, u8: @payload.unicode)
-        Orb.Memory.initial_data!(0x81000, u8: unquote(alphabets))
-        Orb.Memory.initial_data!(0x82000, u8: @payload.hash)
-        Orb.Memory.initial_data!(0x8A000, u8: unquote(:binary.bin_to_list(metadata_bin)))
-      end
+            quote do
+              Orb.Memory.initial_data!(unquote(offset), u8: unquote(bytes))
+            end
+          end
+        )
     ]
 
-    ldict_definition_ast =
-      quote do
-        defw ldict(w1: I32, w2: I32, w3: I32), T.Address, slot: I32, addr: I32 do
-          slot = I32.band(I32.xor(w1, I32.xor(w2, w3)), unquote(mask))
+    ldict_definition_ast = build_ldict(mask) |> prune_version_branches(version)
+    mdict_definition_ast = build_mdict() |> prune_version_branches(version)
+    do_tokenise_definition_ast = build_do_tokenise() |> prune_version_branches(version)
 
-          loop Search do
-            addr = I32.add(0x82000, I32.shl(slot, 4))
+    # 4. Transform AST in a single pass
+    final_ast =
+      Macro.prewalk(ast, fn
+        {:defmodule, meta, children} = node when is_list(children) ->
+          [_old_name, args_list | _] = children
 
-            if I32.eq(Memory.load!(I32, I32.add(addr, 12)), 0) do
-              return(I32.const(0))
+          body =
+            case args_list do
+              [{{:__block__, _, [:do]}, b}] -> b
+              _ -> Keyword.get(args_list, :do)
             end
 
-            if mdict(addr, w1, w2, w3) do
-              return(Memory.load!(I32, I32.add(addr, 12)))
-            end
+          case body do
+            nil ->
+              node
 
-            slot = I32.band(I32.add(slot, 1), unquote(mask))
-            Search.continue()
-          end
+            _ ->
+              # Use the fully-resolved atom so the defmodule is immune to
+              # alias expansion in whatever env compiles it.
+              module_atom = module_name
 
-          return(I32.const(0))
-        end
-      end
-      |> prune_version_branches(version)
-
-    mdict_definition_ast =
-      quote do
-        defw mdict(addr: T.Address, w1: I32, w2: I32, w3: I32), I32, combined1: I32 do
-          combined1 = I32.or(I32.shl(w1, 16), w2)
-
-          if I32.ne(Memory.load!(I32, addr), combined1) do
-            return(I32.const(0))
-          end
-
-          if I32.ne(Memory.load!(I32, I32.add(addr, 4)), w3) do
-            return(I32.const(0))
-          end
-
-          return(I32.const(1))
-        end
-      end
-      |> prune_version_branches(version)
-
-    do_tokenise_definition_ast =
-      quote do
-        defw do_tokenise(t: T.Address, p: T.Address, d: T.Address),
-          text_start: I32,
-          text_len: I32,
-          max_words: I32,
-          word_count: I32,
-          i: I32,
-          char: I32,
-          in_word: I32,
-          word_start: I32,
-          word_len: I32,
-          parse_idx: I32,
-          dict_addr: T.Address,
-          num_sep: I32,
-          sep_addr: I32,
-          j: I32,
-          k: I32,
-          sep_char: I32,
-          is_sep: I32,
-          zchars_len: I32,
-          zchar: I32,
-          w1: I32,
-          w2: I32,
-          w3: I32,
-          z0: I32,
-          z1: I32,
-          z2: I32,
-          z3: I32,
-          z4: I32,
-          z5: I32,
-          z6: I32,
-          z7: I32,
-          z8: I32,
-          alph_addr: I32,
-          found: I32 do
-          if I32.eq(d, 0), do: d = @dictionary_base
-
-          if I32.ge_u(@version, 5) do
-            text_start = I32.add(t, 2)
-            text_len = read_byte(I32.add(t, 1))
-          else
-            text_start = I32.add(t, 1)
-            text_len = 0
-
-            Control.block FindNullBlock do
-              loop FindNull do
-                if I32.lt_u(text_len, 255) do
-                  if I32.eq(read_byte(I32.add(text_start, text_len)), 0) do
-                    FindNullBlock.break()
-                  end
-
-                  text_len = I32.add(text_len, 1)
-                  FindNull.continue()
+              list_children =
+                case body do
+                  {:__block__, _, list} -> list
+                  item -> [item]
                 end
-              end
-            end
-          end
 
-          max_words = read_byte(p)
-          word_count = 0
-          num_sep = read_byte(d)
-          sep_addr = I32.add(d, 1)
+              processed_children =
+                list_children
+                |> Enum.reject(fn
+                  {{:., _, [target, func]}, _, _} when func in [:pages, :initial_data!] ->
+                    memory_alias?(target)
 
-          i = 0
-          in_word = 0
-          word_start = 0
-          word_len = 0
+                  _ ->
+                    false
+                end)
+                |> Enum.map(fn
+                  {:global, _, _} ->
+                    global_block_ast
 
-          loop TokenLoop do
-            if I32.lt_u(i, text_len) do
-              char = read_byte(I32.add(text_start, i))
-              is_sep = 0
-
-              if I32.gt_u(num_sep, 0) do
-                j = 0
-
-                Control.block SepLoopBlock do
-                  loop SepLoop do
-                    if I32.lt_u(j, num_sep) do
-                      sep_char = read_byte(I32.add(sep_addr, j))
-
-                      if I32.eq(char, sep_char) do
-                        is_sep = 1
-                        SepLoopBlock.break()
+                  {:defw, _, [name_node | _]} = node ->
+                    name =
+                      case name_node do
+                        {name, _, _} when is_atom(name) -> name
+                        name when is_atom(name) -> name
+                        _ -> nil
                       end
 
-                      j = I32.add(j, 1)
-                      SepLoop.continue()
+                    case name do
+                      :ldict -> ldict_definition_ast
+                      :mdict -> mdict_definition_ast
+                      :do_tokenise -> do_tokenise_definition_ast
+                      _ -> node
                     end
+
+                  node ->
+                    node
+                end)
+
+              final_children =
+                inject_after_use_orb(
+                  processed_children,
+                  {:__block__, [], [host_registration_ast | memory_setup_ast]}
+                )
+                |> Enum.reject(&is_nil/1)
+
+              {:defmodule, meta, [module_atom, [do: {:__block__, [], final_children}]]}
+          end
+
+        node ->
+          node
+      end)
+
+    normalize_quote_vars(final_ast)
+  end
+
+  # `quote`-produced AST carries hygiene markers (`counter`, `alias: false`,
+  # `context`, `imports`, `ambiguous_op`) that pin identifier resolution to the
+  # assembler's expansion context. Stripping them makes the AST equivalent to
+  # freshly parsed source, so it can be compiled directly without stringifying.
+  @quote_hygiene_keys [:counter, :context, :imports, :ambiguous_op, :alias]
+
+  defp normalize_quote_vars(ast) do
+    Macro.prewalk(ast, fn
+      {:__aliases__, meta, segments} ->
+        {:__aliases__, Keyword.drop(meta, @quote_hygiene_keys), segments}
+
+      {name, meta, ctx} when is_atom(name) and is_atom(ctx) ->
+        {name, Keyword.drop(meta, @quote_hygiene_keys), nil}
+
+      {form, meta, args} when (is_atom(form) or is_tuple(form)) and is_list(meta) ->
+        {form, Keyword.drop(meta, @quote_hygiene_keys), args}
+
+      node ->
+        node
+    end)
+  end
+
+  # Builds the dictionary hash lookup function, parameterised by the table mask.
+  defp build_ldict(mask) do
+    quote do
+      defw ldict(w1: I32, w2: I32, w3: I32), T.Address, slot: I32, addr: I32 do
+        slot = I32.band(I32.xor(w1, I32.xor(w2, w3)), unquote(mask))
+
+        loop Search do
+          addr = I32.add(0x82000, I32.shl(slot, 4))
+
+          if I32.eq(Memory.load!(I32, I32.add(addr, 12)), 0) do
+            return(I32.const(0))
+          end
+
+          if mdict(addr, w1, w2, w3) do
+            return(Memory.load!(I32, I32.add(addr, 12)))
+          end
+
+          slot = I32.band(I32.add(slot, 1), unquote(mask))
+          Search.continue()
+        end
+
+        return(I32.const(0))
+      end
+    end
+  end
+
+  defp build_mdict do
+    quote do
+      defw mdict(addr: T.Address, w1: I32, w2: I32, w3: I32), I32, combined1: I32 do
+        combined1 = I32.or(I32.shl(w1, 16), w2)
+
+        if I32.ne(Memory.load!(I32, addr), combined1) do
+          return(I32.const(0))
+        end
+
+        if I32.ne(Memory.load!(I32, I32.add(addr, 4)), w3) do
+          return(I32.const(0))
+        end
+
+        return(I32.const(1))
+      end
+    end
+  end
+
+  # Builds the tokenizer used for input parsing (the largest generated function).
+  defp build_do_tokenise do
+    quote do
+      defw do_tokenise(t: T.Address, p: T.Address, d: T.Address),
+        text_start: I32,
+        text_len: I32,
+        max_words: I32,
+        word_count: I32,
+        i: I32,
+        char: I32,
+        in_word: I32,
+        word_start: I32,
+        word_len: I32,
+        parse_idx: I32,
+        dict_addr: T.Address,
+        num_sep: I32,
+        sep_addr: I32,
+        j: I32,
+        k: I32,
+        sep_char: I32,
+        is_sep: I32,
+        zchars_len: I32,
+        zchar: I32,
+        w1: I32,
+        w2: I32,
+        w3: I32,
+        z0: I32,
+        z1: I32,
+        z2: I32,
+        z3: I32,
+        z4: I32,
+        z5: I32,
+        z6: I32,
+        z7: I32,
+        z8: I32,
+        alph_addr: I32,
+        found: I32 do
+        if I32.eq(d, 0), do: d = @dictionary_base
+
+        if I32.ge_u(@version, 5) do
+          text_start = I32.add(t, 2)
+          text_len = read_byte(I32.add(t, 1))
+        else
+          text_start = I32.add(t, 1)
+          text_len = 0
+
+          Control.block FindNullBlock do
+            loop FindNull do
+              if I32.lt_u(text_len, 255) do
+                if I32.eq(read_byte(I32.add(text_start, text_len)), 0) do
+                  FindNullBlock.break()
+                end
+
+                text_len = I32.add(text_len, 1)
+                FindNull.continue()
+              end
+            end
+          end
+        end
+
+        max_words = read_byte(p)
+        word_count = 0
+        num_sep = read_byte(d)
+        sep_addr = I32.add(d, 1)
+
+        i = 0
+        in_word = 0
+        word_start = 0
+        word_len = 0
+
+        loop TokenLoop do
+          if I32.lt_u(i, text_len) do
+            char = read_byte(I32.add(text_start, i))
+            is_sep = 0
+
+            if I32.gt_u(num_sep, 0) do
+              j = 0
+
+              Control.block SepLoopBlock do
+                loop SepLoop do
+                  if I32.lt_u(j, num_sep) do
+                    sep_char = read_byte(I32.add(sep_addr, j))
+
+                    if I32.eq(char, sep_char) do
+                      is_sep = 1
+                      SepLoopBlock.break()
+                    end
+
+                    j = I32.add(j, 1)
+                    SepLoop.continue()
                   end
                 end
               end
+            end
 
-              if I32.or(I32.eq(char, 32), is_sep) do
-                if in_word do
-                  if I32.lt_u(word_count, max_words) do
-                    z0 = 5
-                    z1 = 5
-                    z2 = 5
-                    z3 = 5
-                    z4 = 5
-                    z5 = 5
-                    z6 = 5
-                    z7 = 5
-                    z8 = 5
-                    zchars_len = 0
-                    j = 0
+            if I32.or(I32.eq(char, 32), is_sep) do
+              if in_word do
+                if I32.lt_u(word_count, max_words) do
+                  z0 = 5
+                  z1 = 5
+                  z2 = 5
+                  z3 = 5
+                  z4 = 5
+                  z5 = 5
+                  z6 = 5
+                  z7 = 5
+                  z8 = 5
+                  zchars_len = 0
+                  j = 0
 
-                    loop EncodeLoop do
-                      if I32.band(
-                           I32.lt_u(j, word_len),
-                           I32.lt_u(
+                  loop EncodeLoop do
+                    if I32.band(
+                         I32.lt_u(j, word_len),
+                         I32.lt_u(
+                           zchars_len,
+                           if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                         )
+                       ) do
+                      char = read_byte(I32.add(text_start, I32.add(word_start, j)))
+
+                      if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
+                        char = I32.add(char, 32)
+                      end
+
+                      found = 0
+
+                      if I32.eq(char, 32) do
+                        if I32.lt_u(
                              zchars_len,
                              if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                           )
-                         ) do
-                        char = read_byte(I32.add(text_start, I32.add(word_start, j)))
-
-                        if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
-                          char = I32.add(char, 32)
-                        end
-
-                        found = 0
-
-                        if I32.eq(char, 32) do
-                          if I32.lt_u(
-                               zchars_len,
-                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                             ) do
-                            zchar = 0
-                            if I32.eq(zchars_len, 0), do: z0 = zchar
-                            if I32.eq(zchars_len, 1), do: z1 = zchar
-                            if I32.eq(zchars_len, 2), do: z2 = zchar
-                            if I32.eq(zchars_len, 3), do: z3 = zchar
-                            if I32.eq(zchars_len, 4), do: z4 = zchar
-                            if I32.eq(zchars_len, 5), do: z5 = zchar
-                            if I32.eq(zchars_len, 6), do: z6 = zchar
-                            if I32.eq(zchars_len, 7), do: z7 = zchar
-                            if I32.eq(zchars_len, 8), do: z8 = zchar
-                            zchars_len = I32.add(zchars_len, 1)
-                          end
-
-                          found = 1
-                        end
-
-                        if I32.band(
-                             I32.eq(found, 0),
-                             I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))
                            ) do
-                          zchar = I32.add(I32.sub(char, 97), 6)
-
-                          if I32.lt_u(
-                               zchars_len,
-                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                             ) do
-                            if I32.eq(zchars_len, 0), do: z0 = zchar
-                            if I32.eq(zchars_len, 1), do: z1 = zchar
-                            if I32.eq(zchars_len, 2), do: z2 = zchar
-                            if I32.eq(zchars_len, 3), do: z3 = zchar
-                            if I32.eq(zchars_len, 4), do: z4 = zchar
-                            if I32.eq(zchars_len, 5), do: z5 = zchar
-                            if I32.eq(zchars_len, 6), do: z6 = zchar
-                            if I32.eq(zchars_len, 7), do: z7 = zchar
-                            if I32.eq(zchars_len, 8), do: z8 = zchar
-                            zchars_len = I32.add(zchars_len, 1)
-                          end
-
-                          found = 1
+                          zchar = 0
+                          if I32.eq(zchars_len, 0), do: z0 = zchar
+                          if I32.eq(zchars_len, 1), do: z1 = zchar
+                          if I32.eq(zchars_len, 2), do: z2 = zchar
+                          if I32.eq(zchars_len, 3), do: z3 = zchar
+                          if I32.eq(zchars_len, 4), do: z4 = zchar
+                          if I32.eq(zchars_len, 5), do: z5 = zchar
+                          if I32.eq(zchars_len, 6), do: z6 = zchar
+                          if I32.eq(zchars_len, 7), do: z7 = zchar
+                          if I32.eq(zchars_len, 8), do: z8 = zchar
+                          zchars_len = I32.add(zchars_len, 1)
                         end
 
-                        if I32.eq(found, 0) do
-                          k = 0
+                        found = 1
+                      end
 
-                          Control.block A1Search do
-                            loop A1Loop do
-                              if I32.lt_u(k, 26) do
-                                if I32.eq(read_byte(I32.add(0x8101A, k)), char) do
+                      if I32.band(
+                           I32.eq(found, 0),
+                           I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))
+                         ) do
+                        zchar = I32.add(I32.sub(char, 97), 6)
+
+                        if I32.lt_u(
+                             zchars_len,
+                             if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                           ) do
+                          if I32.eq(zchars_len, 0), do: z0 = zchar
+                          if I32.eq(zchars_len, 1), do: z1 = zchar
+                          if I32.eq(zchars_len, 2), do: z2 = zchar
+                          if I32.eq(zchars_len, 3), do: z3 = zchar
+                          if I32.eq(zchars_len, 4), do: z4 = zchar
+                          if I32.eq(zchars_len, 5), do: z5 = zchar
+                          if I32.eq(zchars_len, 6), do: z6 = zchar
+                          if I32.eq(zchars_len, 7), do: z7 = zchar
+                          if I32.eq(zchars_len, 8), do: z8 = zchar
+                          zchars_len = I32.add(zchars_len, 1)
+                        end
+
+                        found = 1
+                      end
+
+                      if I32.eq(found, 0) do
+                        k = 0
+
+                        Control.block A1Search do
+                          loop A1Loop do
+                            if I32.lt_u(k, 26) do
+                              if I32.eq(read_byte(I32.add(0x8101A, k)), char) do
+                                zchar =
+                                  if(I32.le_u(@version, 2),
+                                    do: I32.const(2),
+                                    else: I32.const(4)
+                                  )
+
+                                if I32.lt_u(
+                                     zchars_len,
+                                     if(I32.le_u(@version, 3),
+                                       do: I32.const(6),
+                                       else: I32.const(9)
+                                     )
+                                   ) do
+                                  if I32.eq(zchars_len, 0), do: z0 = zchar
+                                  if I32.eq(zchars_len, 1), do: z1 = zchar
+                                  if I32.eq(zchars_len, 2), do: z2 = zchar
+                                  if I32.eq(zchars_len, 3), do: z3 = zchar
+                                  if I32.eq(zchars_len, 4), do: z4 = zchar
+                                  if I32.eq(zchars_len, 5), do: z5 = zchar
+                                  if I32.eq(zchars_len, 6), do: z6 = zchar
+                                  if I32.eq(zchars_len, 7), do: z7 = zchar
+                                  if I32.eq(zchars_len, 8), do: z8 = zchar
+                                  zchars_len = I32.add(zchars_len, 1)
+                                end
+
+                                zchar = I32.add(k, 6)
+
+                                if I32.lt_u(
+                                     zchars_len,
+                                     if(I32.le_u(@version, 3),
+                                       do: I32.const(6),
+                                       else: I32.const(9)
+                                     )
+                                   ) do
+                                  if I32.eq(zchars_len, 0), do: z0 = zchar
+                                  if I32.eq(zchars_len, 1), do: z1 = zchar
+                                  if I32.eq(zchars_len, 2), do: z2 = zchar
+                                  if I32.eq(zchars_len, 3), do: z3 = zchar
+                                  if I32.eq(zchars_len, 4), do: z4 = zchar
+                                  if I32.eq(zchars_len, 5), do: z5 = zchar
+                                  if I32.eq(zchars_len, 6), do: z6 = zchar
+                                  if I32.eq(zchars_len, 7), do: z7 = zchar
+                                  if I32.eq(zchars_len, 8), do: z8 = zchar
+                                  zchars_len = I32.add(zchars_len, 1)
+                                end
+
+                                found = 1
+                                A1Search.break()
+                              end
+
+                              k = I32.add(k, 1)
+                              A1Loop.continue()
+                            end
+                          end
+                        end
+                      end
+
+                      if I32.eq(found, 0) do
+                        alph_addr = 0x81034
+
+                        if I32.ne(@version, 1) do
+                          alph_addr = 0x8104E
+                        end
+
+                        k = 0
+
+                        Control.block A2Search do
+                          loop A2Loop do
+                            if I32.lt_u(k, 26) do
+                              if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
+                                if I32.ne(k, 0) do
                                   zchar =
                                     if(I32.le_u(@version, 2),
-                                      do: I32.const(2),
-                                      else: I32.const(4)
+                                      do: I32.const(3),
+                                      else: I32.const(5)
                                     )
 
                                   if I32.lt_u(
@@ -384,350 +553,341 @@ defmodule Zorb.Capsule.Assembler do
                                   end
 
                                   found = 1
-                                  A1Search.break()
+                                  A2Search.break()
                                 end
-
-                                k = I32.add(k, 1)
-                                A1Loop.continue()
                               end
+
+                              k = I32.add(k, 1)
+                              A2Loop.continue()
                             end
                           end
                         end
-
-                        if I32.eq(found, 0) do
-                          alph_addr = 0x81034
-
-                          if I32.ne(@version, 1) do
-                            alph_addr = 0x8104E
-                          end
-
-                          k = 0
-
-                          Control.block A2Search do
-                            loop A2Loop do
-                              if I32.lt_u(k, 26) do
-                                if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
-                                  if I32.ne(k, 0) do
-                                    zchar =
-                                      if(I32.le_u(@version, 2),
-                                        do: I32.const(3),
-                                        else: I32.const(5)
-                                      )
-
-                                    if I32.lt_u(
-                                         zchars_len,
-                                         if(I32.le_u(@version, 3),
-                                           do: I32.const(6),
-                                           else: I32.const(9)
-                                         )
-                                       ) do
-                                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                                      zchars_len = I32.add(zchars_len, 1)
-                                    end
-
-                                    zchar = I32.add(k, 6)
-
-                                    if I32.lt_u(
-                                         zchars_len,
-                                         if(I32.le_u(@version, 3),
-                                           do: I32.const(6),
-                                           else: I32.const(9)
-                                         )
-                                       ) do
-                                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                                      zchars_len = I32.add(zchars_len, 1)
-                                    end
-
-                                    found = 1
-                                    A2Search.break()
-                                  end
-                                end
-
-                                k = I32.add(k, 1)
-                                A2Loop.continue()
-                              end
-                            end
-                          end
-                        end
-
-                        if I32.eq(found, 0) do
-                          zchar = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
-
-                          if I32.lt_u(
-                               zchars_len,
-                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                             ) do
-                            if I32.eq(zchars_len, 0), do: z0 = zchar
-                            if I32.eq(zchars_len, 1), do: z1 = zchar
-                            if I32.eq(zchars_len, 2), do: z2 = zchar
-                            if I32.eq(zchars_len, 3), do: z3 = zchar
-                            if I32.eq(zchars_len, 4), do: z4 = zchar
-                            if I32.eq(zchars_len, 5), do: z5 = zchar
-                            if I32.eq(zchars_len, 6), do: z6 = zchar
-                            if I32.eq(zchars_len, 7), do: z7 = zchar
-                            if I32.eq(zchars_len, 8), do: z8 = zchar
-                            zchars_len = I32.add(zchars_len, 1)
-                          end
-
-                          if I32.lt_u(
-                               zchars_len,
-                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                             ) do
-                            if I32.eq(zchars_len, 0), do: z0 = 6
-                            if I32.eq(zchars_len, 1), do: z1 = 6
-                            if I32.eq(zchars_len, 2), do: z2 = 6
-                            if I32.eq(zchars_len, 3), do: z3 = 6
-                            if I32.eq(zchars_len, 4), do: z4 = 6
-                            if I32.eq(zchars_len, 5), do: z5 = 6
-                            if I32.eq(zchars_len, 6), do: z6 = 6
-                            if I32.eq(zchars_len, 7), do: z7 = 6
-                            if I32.eq(zchars_len, 8), do: z8 = 6
-                            zchars_len = I32.add(zchars_len, 1)
-                          end
-
-                          if I32.lt_u(
-                               zchars_len,
-                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                             ) do
-                            zchar = I32.band(I32.shr_u(char, 5), 0x1F)
-                            if I32.eq(zchars_len, 0), do: z0 = zchar
-                            if I32.eq(zchars_len, 1), do: z1 = zchar
-                            if I32.eq(zchars_len, 2), do: z2 = zchar
-                            if I32.eq(zchars_len, 3), do: z3 = zchar
-                            if I32.eq(zchars_len, 4), do: z4 = zchar
-                            if I32.eq(zchars_len, 5), do: z5 = zchar
-                            if I32.eq(zchars_len, 6), do: z6 = zchar
-                            if I32.eq(zchars_len, 7), do: z7 = zchar
-                            if I32.eq(zchars_len, 8), do: z8 = zchar
-                            zchars_len = I32.add(zchars_len, 1)
-                          end
-
-                          if I32.lt_u(
-                               zchars_len,
-                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                             ) do
-                            zchar = I32.band(char, 0x1F)
-                            if I32.eq(zchars_len, 0), do: z0 = zchar
-                            if I32.eq(zchars_len, 1), do: z1 = zchar
-                            if I32.eq(zchars_len, 2), do: z2 = zchar
-                            if I32.eq(zchars_len, 3), do: z3 = zchar
-                            if I32.eq(zchars_len, 4), do: z4 = zchar
-                            if I32.eq(zchars_len, 5), do: z5 = zchar
-                            if I32.eq(zchars_len, 6), do: z6 = zchar
-                            if I32.eq(zchars_len, 7), do: z7 = zchar
-                            if I32.eq(zchars_len, 8), do: z8 = zchar
-                            zchars_len = I32.add(zchars_len, 1)
-                          end
-                        end
-
-                        j = I32.add(j, 1)
-                        EncodeLoop.continue()
                       end
-                    end
 
-                    w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
-                    w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
-                    w3 = 0
+                      if I32.eq(found, 0) do
+                        zchar = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
 
-                    if I32.le_u(@version, 3) do
-                      w2 = I32.or(w2, 0x8000)
-                    else
-                      w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
-                      w3 = I32.or(w3, 0x8000)
-                    end
+                        if I32.lt_u(
+                             zchars_len,
+                             if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                           ) do
+                          if I32.eq(zchars_len, 0), do: z0 = zchar
+                          if I32.eq(zchars_len, 1), do: z1 = zchar
+                          if I32.eq(zchars_len, 2), do: z2 = zchar
+                          if I32.eq(zchars_len, 3), do: z3 = zchar
+                          if I32.eq(zchars_len, 4), do: z4 = zchar
+                          if I32.eq(zchars_len, 5), do: z5 = zchar
+                          if I32.eq(zchars_len, 6), do: z6 = zchar
+                          if I32.eq(zchars_len, 7), do: z7 = zchar
+                          if I32.eq(zchars_len, 8), do: z8 = zchar
+                          zchars_len = I32.add(zchars_len, 1)
+                        end
 
-                    dict_addr = ldict(w1, w2, w3)
-                    parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
-                    write_word(parse_idx, dict_addr)
-                    write_byte(I32.add(parse_idx, 2), word_len)
+                        if I32.lt_u(
+                             zchars_len,
+                             if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                           ) do
+                          if I32.eq(zchars_len, 0), do: z0 = 6
+                          if I32.eq(zchars_len, 1), do: z1 = 6
+                          if I32.eq(zchars_len, 2), do: z2 = 6
+                          if I32.eq(zchars_len, 3), do: z3 = 6
+                          if I32.eq(zchars_len, 4), do: z4 = 6
+                          if I32.eq(zchars_len, 5), do: z5 = 6
+                          if I32.eq(zchars_len, 6), do: z6 = 6
+                          if I32.eq(zchars_len, 7), do: z7 = 6
+                          if I32.eq(zchars_len, 8), do: z8 = 6
+                          zchars_len = I32.add(zchars_len, 1)
+                        end
 
-                    write_byte(
-                      I32.add(parse_idx, 3),
-                      I32.add(
-                        word_start,
-                        if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
-                      )
-                    )
+                        if I32.lt_u(
+                             zchars_len,
+                             if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                           ) do
+                          zchar = I32.band(I32.shr_u(char, 5), 0x1F)
+                          if I32.eq(zchars_len, 0), do: z0 = zchar
+                          if I32.eq(zchars_len, 1), do: z1 = zchar
+                          if I32.eq(zchars_len, 2), do: z2 = zchar
+                          if I32.eq(zchars_len, 3), do: z3 = zchar
+                          if I32.eq(zchars_len, 4), do: z4 = zchar
+                          if I32.eq(zchars_len, 5), do: z5 = zchar
+                          if I32.eq(zchars_len, 6), do: z6 = zchar
+                          if I32.eq(zchars_len, 7), do: z7 = zchar
+                          if I32.eq(zchars_len, 8), do: z8 = zchar
+                          zchars_len = I32.add(zchars_len, 1)
+                        end
 
-                    word_count = I32.add(word_count, 1)
-                  end
-
-                  in_word = 0
-                end
-
-                if is_sep do
-                  if I32.lt_u(word_count, max_words) do
-                    char = read_byte(I32.add(text_start, i))
-
-                    if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
-                      char = I32.add(char, 32)
-                    end
-
-                    z0 = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
-                    k = 0
-                    z1 = 5
-                    alph_addr = 0x81034
-
-                    if I32.ne(@version, 1) do
-                      alph_addr = 0x8104E
-                    end
-
-                    loop SepFindLoop do
-                      if I32.lt_u(k, 26) do
-                        if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
-                          z1 = I32.add(k, 6)
-                        else
-                          k = I32.add(k, 1)
-                          SepFindLoop.continue()
+                        if I32.lt_u(
+                             zchars_len,
+                             if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                           ) do
+                          zchar = I32.band(char, 0x1F)
+                          if I32.eq(zchars_len, 0), do: z0 = zchar
+                          if I32.eq(zchars_len, 1), do: z1 = zchar
+                          if I32.eq(zchars_len, 2), do: z2 = zchar
+                          if I32.eq(zchars_len, 3), do: z3 = zchar
+                          if I32.eq(zchars_len, 4), do: z4 = zchar
+                          if I32.eq(zchars_len, 5), do: z5 = zchar
+                          if I32.eq(zchars_len, 6), do: z6 = zchar
+                          if I32.eq(zchars_len, 7), do: z7 = zchar
+                          if I32.eq(zchars_len, 8), do: z8 = zchar
+                          zchars_len = I32.add(zchars_len, 1)
                         end
                       end
+
+                      j = I32.add(j, 1)
+                      EncodeLoop.continue()
                     end
-
-                    z2 = 5
-                    z3 = 5
-                    z4 = 5
-                    z5 = 5
-                    z6 = 5
-                    z7 = 5
-                    z8 = 5
-
-                    w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
-                    w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
-                    w3 = 0
-
-                    if I32.le_u(@version, 3) do
-                      w2 = I32.or(w2, 0x8000)
-                    else
-                      w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
-                      w3 = I32.or(w3, 0x8000)
-                    end
-
-                    dict_addr = ldict(w1, w2, w3)
-                    parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
-                    write_word(parse_idx, dict_addr)
-                    write_byte(I32.add(parse_idx, 2), 1)
-
-                    write_byte(
-                      I32.add(parse_idx, 3),
-                      I32.add(i, if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1)))
-                    )
-
-                    word_count = I32.add(word_count, 1)
                   end
-                end
-              else
-                if I32.eq(in_word, 0) do
-                  word_start = i
-                  word_len = 0
-                  in_word = 1
+
+                  w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
+                  w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
+                  w3 = 0
+
+                  if I32.le_u(@version, 3) do
+                    w2 = I32.or(w2, 0x8000)
+                  else
+                    w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
+                    w3 = I32.or(w3, 0x8000)
+                  end
+
+                  dict_addr = ldict(w1, w2, w3)
+                  parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
+                  write_word(parse_idx, dict_addr)
+                  write_byte(I32.add(parse_idx, 2), word_len)
+
+                  write_byte(
+                    I32.add(parse_idx, 3),
+                    I32.add(
+                      word_start,
+                      if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
+                    )
+                  )
+
+                  word_count = I32.add(word_count, 1)
                 end
 
-                word_len = I32.add(word_len, 1)
+                in_word = 0
               end
 
-              i = I32.add(i, 1)
-              TokenLoop.continue()
-            end
-          end
-
-          if in_word do
-            if I32.lt_u(word_count, max_words) do
-              z0 = 5
-              z1 = 5
-              z2 = 5
-              z3 = 5
-              z4 = 5
-              z5 = 5
-              z6 = 5
-              z7 = 5
-              z8 = 5
-              zchars_len = 0
-              j = 0
-
-              loop EncodeLoop2 do
-                if I32.band(
-                     I32.lt_u(j, word_len),
-                     I32.lt_u(
-                       zchars_len,
-                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                     )
-                   ) do
-                  char = read_byte(I32.add(text_start, I32.add(word_start, j)))
+              if is_sep do
+                if I32.lt_u(word_count, max_words) do
+                  char = read_byte(I32.add(text_start, i))
 
                   if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
                     char = I32.add(char, 32)
                   end
 
-                  found = 0
+                  z0 = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
+                  k = 0
+                  z1 = 5
+                  alph_addr = 0x81034
 
-                  if I32.eq(char, 32) do
-                    if I32.lt_u(
-                         zchars_len,
-                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                       ) do
-                      zchar = 0
-                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                      zchars_len = I32.add(zchars_len, 1)
-                    end
-
-                    found = 1
+                  if I32.ne(@version, 1) do
+                    alph_addr = 0x8104E
                   end
 
-                  if I32.band(I32.eq(found, 0), I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))) do
-                    zchar = I32.add(I32.sub(char, 97), 6)
-
-                    if I32.lt_u(
-                         zchars_len,
-                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                       ) do
-                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                      zchars_len = I32.add(zchars_len, 1)
+                  loop SepFindLoop do
+                    if I32.lt_u(k, 26) do
+                      if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
+                        z1 = I32.add(k, 6)
+                      else
+                        k = I32.add(k, 1)
+                        SepFindLoop.continue()
+                      end
                     end
-
-                    found = 1
                   end
 
-                  if I32.eq(found, 0) do
-                    k = 0
+                  z2 = 5
+                  z3 = 5
+                  z4 = 5
+                  z5 = 5
+                  z6 = 5
+                  z7 = 5
+                  z8 = 5
 
-                    Control.block A1Search2 do
-                      loop A1Loop2 do
-                        if I32.lt_u(k, 26) do
-                          if I32.eq(read_byte(I32.add(0x8101A, k)), char) do
+                  w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
+                  w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
+                  w3 = 0
+
+                  if I32.le_u(@version, 3) do
+                    w2 = I32.or(w2, 0x8000)
+                  else
+                    w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
+                    w3 = I32.or(w3, 0x8000)
+                  end
+
+                  dict_addr = ldict(w1, w2, w3)
+                  parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
+                  write_word(parse_idx, dict_addr)
+                  write_byte(I32.add(parse_idx, 2), 1)
+
+                  write_byte(
+                    I32.add(parse_idx, 3),
+                    I32.add(i, if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1)))
+                  )
+
+                  word_count = I32.add(word_count, 1)
+                end
+              end
+            else
+              if I32.eq(in_word, 0) do
+                word_start = i
+                word_len = 0
+                in_word = 1
+              end
+
+              word_len = I32.add(word_len, 1)
+            end
+
+            i = I32.add(i, 1)
+            TokenLoop.continue()
+          end
+        end
+
+        if in_word do
+          if I32.lt_u(word_count, max_words) do
+            z0 = 5
+            z1 = 5
+            z2 = 5
+            z3 = 5
+            z4 = 5
+            z5 = 5
+            z6 = 5
+            z7 = 5
+            z8 = 5
+            zchars_len = 0
+            j = 0
+
+            loop EncodeLoop2 do
+              if I32.band(
+                   I32.lt_u(j, word_len),
+                   I32.lt_u(
+                     zchars_len,
+                     if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                   )
+                 ) do
+                char = read_byte(I32.add(text_start, I32.add(word_start, j)))
+
+                if I32.band(I32.ge_u(char, 65), I32.le_u(char, 90)) do
+                  char = I32.add(char, 32)
+                end
+
+                found = 0
+
+                if I32.eq(char, 32) do
+                  if I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     ) do
+                    zchar = 0
+                    if I32.eq(zchars_len, 0), do: z0 = zchar
+                    if I32.eq(zchars_len, 1), do: z1 = zchar
+                    if I32.eq(zchars_len, 2), do: z2 = zchar
+                    if I32.eq(zchars_len, 3), do: z3 = zchar
+                    if I32.eq(zchars_len, 4), do: z4 = zchar
+                    if I32.eq(zchars_len, 5), do: z5 = zchar
+                    if I32.eq(zchars_len, 6), do: z6 = zchar
+                    if I32.eq(zchars_len, 7), do: z7 = zchar
+                    if I32.eq(zchars_len, 8), do: z8 = zchar
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+
+                  found = 1
+                end
+
+                if I32.band(I32.eq(found, 0), I32.band(I32.ge_u(char, 97), I32.le_u(char, 122))) do
+                  zchar = I32.add(I32.sub(char, 97), 6)
+
+                  if I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     ) do
+                    if I32.eq(zchars_len, 0), do: z0 = zchar
+                    if I32.eq(zchars_len, 1), do: z1 = zchar
+                    if I32.eq(zchars_len, 2), do: z2 = zchar
+                    if I32.eq(zchars_len, 3), do: z3 = zchar
+                    if I32.eq(zchars_len, 4), do: z4 = zchar
+                    if I32.eq(zchars_len, 5), do: z5 = zchar
+                    if I32.eq(zchars_len, 6), do: z6 = zchar
+                    if I32.eq(zchars_len, 7), do: z7 = zchar
+                    if I32.eq(zchars_len, 8), do: z8 = zchar
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+
+                  found = 1
+                end
+
+                if I32.eq(found, 0) do
+                  k = 0
+
+                  Control.block A1Search2 do
+                    loop A1Loop2 do
+                      if I32.lt_u(k, 26) do
+                        if I32.eq(read_byte(I32.add(0x8101A, k)), char) do
+                          zchar =
+                            if(I32.le_u(@version, 2), do: I32.const(2), else: I32.const(4))
+
+                          if I32.lt_u(
+                               zchars_len,
+                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                             ) do
+                            if I32.eq(zchars_len, 0), do: z0 = zchar
+                            if I32.eq(zchars_len, 1), do: z1 = zchar
+                            if I32.eq(zchars_len, 2), do: z2 = zchar
+                            if I32.eq(zchars_len, 3), do: z3 = zchar
+                            if I32.eq(zchars_len, 4), do: z4 = zchar
+                            if I32.eq(zchars_len, 5), do: z5 = zchar
+                            if I32.eq(zchars_len, 6), do: z6 = zchar
+                            if I32.eq(zchars_len, 7), do: z7 = zchar
+                            if I32.eq(zchars_len, 8), do: z8 = zchar
+                            zchars_len = I32.add(zchars_len, 1)
+                          end
+
+                          zchar = I32.add(k, 6)
+
+                          if I32.lt_u(
+                               zchars_len,
+                               if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                             ) do
+                            if I32.eq(zchars_len, 0), do: z0 = zchar
+                            if I32.eq(zchars_len, 1), do: z1 = zchar
+                            if I32.eq(zchars_len, 2), do: z2 = zchar
+                            if I32.eq(zchars_len, 3), do: z3 = zchar
+                            if I32.eq(zchars_len, 4), do: z4 = zchar
+                            if I32.eq(zchars_len, 5), do: z5 = zchar
+                            if I32.eq(zchars_len, 6), do: z6 = zchar
+                            if I32.eq(zchars_len, 7), do: z7 = zchar
+                            if I32.eq(zchars_len, 8), do: z8 = zchar
+                            zchars_len = I32.add(zchars_len, 1)
+                          end
+
+                          found = 1
+                          A1Search2.break()
+                        end
+
+                        k = I32.add(k, 1)
+                        A1Loop2.continue()
+                      end
+                    end
+                  end
+                end
+
+                if I32.eq(found, 0) do
+                  alph_addr = 0x81034
+
+                  if I32.ne(@version, 1) do
+                    alph_addr = 0x8104E
+                  end
+
+                  k = 0
+
+                  Control.block A2Search2 do
+                    loop A2Loop2 do
+                      if I32.lt_u(k, 26) do
+                        if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
+                          if I32.ne(k, 0) do
                             zchar =
-                              if(I32.le_u(@version, 2), do: I32.const(2), else: I32.const(4))
+                              if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
 
                             if I32.lt_u(
                                  zchars_len,
@@ -764,282 +924,141 @@ defmodule Zorb.Capsule.Assembler do
                             end
 
                             found = 1
-                            A1Search2.break()
+                            A2Search2.break()
                           end
-
-                          k = I32.add(k, 1)
-                          A1Loop2.continue()
                         end
+
+                        k = I32.add(k, 1)
+                        A2Loop2.continue()
                       end
                     end
                   end
-
-                  if I32.eq(found, 0) do
-                    alph_addr = 0x81034
-
-                    if I32.ne(@version, 1) do
-                      alph_addr = 0x8104E
-                    end
-
-                    k = 0
-
-                    Control.block A2Search2 do
-                      loop A2Loop2 do
-                        if I32.lt_u(k, 26) do
-                          if I32.eq(read_byte(I32.add(alph_addr, k)), char) do
-                            if I32.ne(k, 0) do
-                              zchar =
-                                if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
-
-                              if I32.lt_u(
-                                   zchars_len,
-                                   if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                                 ) do
-                                if I32.eq(zchars_len, 0), do: z0 = zchar
-                                if I32.eq(zchars_len, 1), do: z1 = zchar
-                                if I32.eq(zchars_len, 2), do: z2 = zchar
-                                if I32.eq(zchars_len, 3), do: z3 = zchar
-                                if I32.eq(zchars_len, 4), do: z4 = zchar
-                                if I32.eq(zchars_len, 5), do: z5 = zchar
-                                if I32.eq(zchars_len, 6), do: z6 = zchar
-                                if I32.eq(zchars_len, 7), do: z7 = zchar
-                                if I32.eq(zchars_len, 8), do: z8 = zchar
-                                zchars_len = I32.add(zchars_len, 1)
-                              end
-
-                              zchar = I32.add(k, 6)
-
-                              if I32.lt_u(
-                                   zchars_len,
-                                   if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                                 ) do
-                                if I32.eq(zchars_len, 0), do: z0 = zchar
-                                if I32.eq(zchars_len, 1), do: z1 = zchar
-                                if I32.eq(zchars_len, 2), do: z2 = zchar
-                                if I32.eq(zchars_len, 3), do: z3 = zchar
-                                if I32.eq(zchars_len, 4), do: z4 = zchar
-                                if I32.eq(zchars_len, 5), do: z5 = zchar
-                                if I32.eq(zchars_len, 6), do: z6 = zchar
-                                if I32.eq(zchars_len, 7), do: z7 = zchar
-                                if I32.eq(zchars_len, 8), do: z8 = zchar
-                                zchars_len = I32.add(zchars_len, 1)
-                              end
-
-                              found = 1
-                              A2Search2.break()
-                            end
-                          end
-
-                          k = I32.add(k, 1)
-                          A2Loop2.continue()
-                        end
-                      end
-                    end
-                  end
-
-                  if I32.eq(found, 0) do
-                    zchar = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
-
-                    if I32.lt_u(
-                         zchars_len,
-                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                       ) do
-                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                      zchars_len = I32.add(zchars_len, 1)
-                    end
-
-                    if I32.lt_u(
-                         zchars_len,
-                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                       ) do
-                      if I32.eq(zchars_len, 0), do: z0 = 6
-                      if I32.eq(zchars_len, 1), do: z1 = 6
-                      if I32.eq(zchars_len, 2), do: z2 = 6
-                      if I32.eq(zchars_len, 3), do: z3 = 6
-                      if I32.eq(zchars_len, 4), do: z4 = 6
-                      if I32.eq(zchars_len, 5), do: z5 = 6
-                      if I32.eq(zchars_len, 6), do: z6 = 6
-                      if I32.eq(zchars_len, 7), do: z7 = 6
-                      if I32.eq(zchars_len, 8), do: z8 = 6
-                      zchars_len = I32.add(zchars_len, 1)
-                    end
-
-                    if I32.lt_u(
-                         zchars_len,
-                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                       ) do
-                      zchar = I32.band(I32.shr_u(char, 5), 0x1F)
-                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                      zchars_len = I32.add(zchars_len, 1)
-                    end
-
-                    if I32.lt_u(
-                         zchars_len,
-                         if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
-                       ) do
-                      zchar = I32.band(char, 0x1F)
-                      if I32.eq(zchars_len, 0), do: z0 = zchar
-                      if I32.eq(zchars_len, 1), do: z1 = zchar
-                      if I32.eq(zchars_len, 2), do: z2 = zchar
-                      if I32.eq(zchars_len, 3), do: z3 = zchar
-                      if I32.eq(zchars_len, 4), do: z4 = zchar
-                      if I32.eq(zchars_len, 5), do: z5 = zchar
-                      if I32.eq(zchars_len, 6), do: z6 = zchar
-                      if I32.eq(zchars_len, 7), do: z7 = zchar
-                      if I32.eq(zchars_len, 8), do: z8 = zchar
-                      zchars_len = I32.add(zchars_len, 1)
-                    end
-                  end
-
-                  j = I32.add(j, 1)
-                  EncodeLoop2.continue()
                 end
+
+                if I32.eq(found, 0) do
+                  zchar = if(I32.le_u(@version, 2), do: I32.const(3), else: I32.const(5))
+
+                  if I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     ) do
+                    if I32.eq(zchars_len, 0), do: z0 = zchar
+                    if I32.eq(zchars_len, 1), do: z1 = zchar
+                    if I32.eq(zchars_len, 2), do: z2 = zchar
+                    if I32.eq(zchars_len, 3), do: z3 = zchar
+                    if I32.eq(zchars_len, 4), do: z4 = zchar
+                    if I32.eq(zchars_len, 5), do: z5 = zchar
+                    if I32.eq(zchars_len, 6), do: z6 = zchar
+                    if I32.eq(zchars_len, 7), do: z7 = zchar
+                    if I32.eq(zchars_len, 8), do: z8 = zchar
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+
+                  if I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     ) do
+                    if I32.eq(zchars_len, 0), do: z0 = 6
+                    if I32.eq(zchars_len, 1), do: z1 = 6
+                    if I32.eq(zchars_len, 2), do: z2 = 6
+                    if I32.eq(zchars_len, 3), do: z3 = 6
+                    if I32.eq(zchars_len, 4), do: z4 = 6
+                    if I32.eq(zchars_len, 5), do: z5 = 6
+                    if I32.eq(zchars_len, 6), do: z6 = 6
+                    if I32.eq(zchars_len, 7), do: z7 = 6
+                    if I32.eq(zchars_len, 8), do: z8 = 6
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+
+                  if I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     ) do
+                    zchar = I32.band(I32.shr_u(char, 5), 0x1F)
+                    if I32.eq(zchars_len, 0), do: z0 = zchar
+                    if I32.eq(zchars_len, 1), do: z1 = zchar
+                    if I32.eq(zchars_len, 2), do: z2 = zchar
+                    if I32.eq(zchars_len, 3), do: z3 = zchar
+                    if I32.eq(zchars_len, 4), do: z4 = zchar
+                    if I32.eq(zchars_len, 5), do: z5 = zchar
+                    if I32.eq(zchars_len, 6), do: z6 = zchar
+                    if I32.eq(zchars_len, 7), do: z7 = zchar
+                    if I32.eq(zchars_len, 8), do: z8 = zchar
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+
+                  if I32.lt_u(
+                       zchars_len,
+                       if(I32.le_u(@version, 3), do: I32.const(6), else: I32.const(9))
+                     ) do
+                    zchar = I32.band(char, 0x1F)
+                    if I32.eq(zchars_len, 0), do: z0 = zchar
+                    if I32.eq(zchars_len, 1), do: z1 = zchar
+                    if I32.eq(zchars_len, 2), do: z2 = zchar
+                    if I32.eq(zchars_len, 3), do: z3 = zchar
+                    if I32.eq(zchars_len, 4), do: z4 = zchar
+                    if I32.eq(zchars_len, 5), do: z5 = zchar
+                    if I32.eq(zchars_len, 6), do: z6 = zchar
+                    if I32.eq(zchars_len, 7), do: z7 = zchar
+                    if I32.eq(zchars_len, 8), do: z8 = zchar
+                    zchars_len = I32.add(zchars_len, 1)
+                  end
+                end
+
+                j = I32.add(j, 1)
+                EncodeLoop2.continue()
               end
+            end
 
-              w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
-              w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
-              w3 = 0
+            w1 = I32.or(I32.shl(z0, 10), I32.or(I32.shl(z1, 5), z2))
+            w2 = I32.or(I32.shl(z3, 10), I32.or(I32.shl(z4, 5), z5))
+            w3 = 0
 
-              if I32.le_u(@version, 3) do
-                w2 = I32.or(w2, 0x8000)
-              else
-                w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
-                w3 = I32.or(w3, 0x8000)
-              end
+            if I32.le_u(@version, 3) do
+              w2 = I32.or(w2, 0x8000)
+            else
+              w3 = I32.or(I32.shl(z6, 10), I32.or(I32.shl(z7, 5), z8))
+              w3 = I32.or(w3, 0x8000)
+            end
 
-              dict_addr = ldict(w1, w2, w3)
-              parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
-              write_word(parse_idx, dict_addr)
-              write_byte(I32.add(parse_idx, 2), word_len)
+            dict_addr = ldict(w1, w2, w3)
+            parse_idx = I32.add(p, I32.add(2, I32.mul(word_count, 4)))
+            write_word(parse_idx, dict_addr)
+            write_byte(I32.add(parse_idx, 2), word_len)
 
-              write_byte(
-                I32.add(parse_idx, 3),
-                I32.add(
-                  word_start,
-                  if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
-                )
+            write_byte(
+              I32.add(parse_idx, 3),
+              I32.add(
+                word_start,
+                if(I32.ge_u(@version, 5), do: I32.const(2), else: I32.const(1))
               )
+            )
 
-              word_count = I32.add(word_count, 1)
-            end
+            word_count = I32.add(word_count, 1)
           end
-
-          write_byte(I32.add(p, 1), word_count)
-
-          # Clear remaining parse buffer slots
-          write_word(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 4), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 6), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 8), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 10), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 12), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 14), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 16), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 18), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 20), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 22), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 24), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 26), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 28), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 30), I32.mul(word_count, 4)), 0)
-          write_word(I32.add(I32.add(p, 32), I32.mul(word_count, 4)), 0)
         end
+
+        write_byte(I32.add(p, 1), word_count)
+
+        # Clear remaining parse buffer slots
+        write_word(I32.add(I32.add(p, 2), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 4), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 6), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 8), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 10), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 12), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 14), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 16), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 18), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 20), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 22), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 24), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 26), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 28), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 30), I32.mul(word_count, 4)), 0)
+        write_word(I32.add(I32.add(p, 32), I32.mul(word_count, 4)), 0)
       end
-      |> prune_version_branches(version)
-
-    # 4. Transform AST in a single pass
-    final_ast =
-      Macro.prewalk(ast, fn
-        {:defmodule, meta, children} = node when is_list(children) ->
-          [_old_name, args_list | _] = children
-
-          body =
-            case args_list do
-              [{{:__block__, _, [:do]}, b}] -> b
-              _ -> Keyword.get(args_list, :do)
-            end
-
-          case body do
-            nil ->
-              node
-
-            _ ->
-              alias_node =
-                {:__aliases__, [alias: false],
-                 Module.split(module_name) |> Enum.map(&String.to_atom/1)}
-
-              list_children =
-                case body do
-                  {:__block__, _, list} -> list
-                  item -> [item]
-                end
-
-              processed_children =
-                list_children
-                |> Enum.reject(fn
-                  {{:., _, [target, func]}, _, _} when func in [:pages, :initial_data!] ->
-                    target_str = Macro.to_string(target)
-                    target_str == "Memory" or target_str == "Orb.Memory"
-
-                  _ ->
-                    false
-                end)
-                |> Enum.map(fn
-                  {:global, _, _} ->
-                    global_block_ast
-
-                  {:defw, _, [name_node | _]} = node ->
-                    name =
-                      case name_node do
-                        {name, _, _} when is_atom(name) -> name
-                        name when is_atom(name) -> name
-                        _ -> nil
-                      end
-
-                    case name do
-                      :ldict -> ldict_definition_ast
-                      :mdict -> mdict_definition_ast
-                      :do_tokenise -> do_tokenise_definition_ast
-                      _ -> node
-                    end
-
-                  node ->
-                    node
-                end)
-
-              final_children =
-                inject_after_use_orb(
-                  processed_children,
-                  {:__block__, [], [host_registration_ast | memory_setup_ast]}
-                )
-                |> Enum.reject(&is_nil/1)
-
-              {:defmodule, meta, [alias_node, [do: {:__block__, [], final_children}]]}
-          end
-
-        node ->
-          node
-      end)
-
-    source_code = Sourceror.to_string(final_ast)
-
-    {source_code, payload_path}
+    end
   end
 
   def prune_version_branches(ast, version) do
@@ -1067,10 +1086,15 @@ defmodule Zorb.Capsule.Assembler do
           node
       end)
 
-    # Remove any nil nodes
+    # Drop nil statements left behind by branch pruning. Only statements inside
+    # blocks are removed — literal `nil` values elsewhere (e.g. a `defw`
+    # return type) must be preserved exactly as parsed.
     Macro.prewalk(result, fn
-      nil -> {:__block__, [], []}
-      node -> node
+      {:__block__, meta, children} when is_list(children) ->
+        {:__block__, meta, Enum.reject(children, &is_nil/1)}
+
+      node ->
+        node
     end)
   end
 
@@ -1184,9 +1208,7 @@ defmodule Zorb.Capsule.Assembler do
         case condition do
           {{:., _, [target, op]}, _, [{:@, _, [{v_name, _, _}]}, v]}
           when op in [:ge_u, :le_u, :lt_u, :gt_u, :eq, :ne] and v_name == :version ->
-            target_str = Macro.to_string(target)
-
-            if target_str in ["I32", "Orb.I32"] do
+            if i32_alias?(target) do
               # Extract version number from AST
               version_num =
                 case v do
@@ -1214,7 +1236,6 @@ defmodule Zorb.Capsule.Assembler do
                 end
 
               if version_num do
-                # Sourceror wraps keys in {:__block__, meta, [key]}
                 yes =
                   Enum.find_value(blocks, {:__block__, [], []}, fn
                     {{:__block__, _, [:do]}, value} -> value
@@ -1257,6 +1278,24 @@ defmodule Zorb.Capsule.Assembler do
       node ->
         node
     end)
+  end
+
+  # Matches `Memory` / `Orb.Memory` alias nodes structurally, avoiding string round-trips.
+  defp memory_alias?(target) do
+    case target do
+      {:__aliases__, _, [:Memory]} -> true
+      {:__aliases__, _, [:Orb, :Memory]} -> true
+      _ -> false
+    end
+  end
+
+  # Matches `I32` / `Orb.I32` alias nodes structurally, avoiding string round-trips.
+  defp i32_alias?(target) do
+    case target do
+      {:__aliases__, _, [:I32]} -> true
+      {:__aliases__, _, [:Orb, :I32]} -> true
+      _ -> false
+    end
   end
 
   defp inject_after_use_orb(children, new_setup) do

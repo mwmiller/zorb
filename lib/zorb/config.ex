@@ -21,13 +21,6 @@ defmodule Zorb.Config do
   end
 
   @doc """
-  Returns the path for a specific sidecar payload.
-  """
-  def payload_path(version) do
-    Path.join(working_dir(), "payload_#{version}_#{:erlang.unique_integer([:positive])}.bin")
-  end
-
-  @doc """
   Ensures the working and cache directories exist.
   """
   def ensure_dirs! do

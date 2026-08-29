@@ -6,7 +6,8 @@
 - **V0.6.0 Transformation**: Zorb is now a pure Elixir library for compiling Z-machine stories into standalone WASM capsules.
 - **Runners Moved**: `Zorb.Session` and `Zorb.CLI` have been moved to `test/support/` to eliminate mandatory WASMex dependencies for end users.
 - **V1-V8 Support**: Full compliance (excluding V6) achieved and verified.
-- **Baking Factory**: Sourceror-based pipeline produces bespoke WASM capsules.
+- **Baking Factory**: Pure-AST pipeline produces bespoke WASM capsules. `Assembler.assemble/2` returns a final Elixir AST (story data baked in as literals) compiled via `Code.eval_quoted` — no Sourceror stringification, no payload temp files.
+- **AST Hygiene Rule**: `quote`-built nodes must have hygiene metadata (`counter`, `context`, `imports`, `ambiguous_op`, `alias`) stripped before `eval_quoted`, or identifier resolution breaks inside the generated capsule (`Zorb.Capsule.Assembler.normalize_quote_vars/1`).
 - **Tokenizer**: Handled entirely within the WASM capsule with O(1) dictionary lookups.
 
 ## Absolute Mandates
